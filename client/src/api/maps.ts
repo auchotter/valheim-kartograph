@@ -33,3 +33,22 @@ export async function duplicateMap(mapId: Id, name: string): Promise<MapRecord> 
 export async function deleteMap(mapId: Id): Promise<void> {
   await requestEmpty(`/api/maps/${mapId}`, { method: 'DELETE' });
 }
+
+export interface UndoMapResponse {
+  undone: boolean;
+  reason?: 'empty';
+  targetOperationId?: Id;
+  inverseOperationId?: Id;
+  mapRevision?: number;
+  objectType?: MapObject['objectType'];
+  objectId?: Id;
+  action?: string;
+  idempotent: boolean;
+}
+
+export async function undoMap(mapId: Id, actorId: Id, clientOperationId: Id): Promise<UndoMapResponse> {
+  return requestJson(`/api/maps/${mapId}/undo`, {
+    method: 'POST',
+    body: JSON.stringify({ actorId, clientOperationId }),
+  });
+}

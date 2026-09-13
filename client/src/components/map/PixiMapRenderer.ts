@@ -15,6 +15,12 @@ import { chooseGridSpacing } from '../../lib/grid';
 import { pathPolyline } from '../../lib/pathGeometry';
 import { drawMarkerIcon, MARKER_ICON_VIEWBOX } from '../../lib/markerIcons';
 import {
+  dottedPathVisualStyle,
+  pathColorForVisibleBiome,
+  PATH_DARK_COLOR,
+} from '../../lib/pathVisualStyle';
+import { orderTerrainStrokes, resolveVisibleBiomeAtPointInOrder } from '../../lib/terrainVisibility';
+import {
   effectiveMarkerVisualDiameterCss,
   markerCaptionOffsetCss,
   markerIconLocalScale,
@@ -25,11 +31,8 @@ import type { Camera } from '../../lib/camera';
 const PARCHMENT_COLOR = 0xe8e1d1;
 const CLASSIFICATION_LAND_COLOR = 0xff0000;
 const CLASSIFICATION_OCEAN_COLOR = 0x0000ff;
-const PATH_COLOR = 0x4b463d;
 const PATH_SELECTION_COLOR = 0x918066;
 const HANDLE_RADIUS_CSS = 6.5;
-const PATH_DOT_RADIUS_CSS = 1.7;
-const PATH_DOT_SPACING_CSS = 8;
 const MAX_DOTS_PER_PATH = 6_000;
 // Set locally while diagnosing Pixi render-target output. This is deliberately
 // not exposed as an application control and remains disabled in normal builds.
@@ -53,6 +56,12 @@ export interface PathPreview {
   geometryType: PathGeometryType;
   strokeWidth: number;
   points: readonly WorldPoint[];
+}
+
+export interface MarkerPlacementPreview {
+  markerType: string;
+  point: WorldPoint;
+  directionDegrees: number | null;
 }
 
 /**
@@ -98,6 +107,7 @@ export class PixiMapRenderer {
   private readonly pathGraphics = new Map<string, Graphics>();
   private readonly markers = new Container();
   private readonly markerShapes = new Container();
+  private readonly markerPlacement = new Container();
   private readonly markerEdit = new Container();
   private readonly markerSelection = new Container();
   private readonly markerNodes = new Map<string, Container>();
@@ -120,6 +130,8 @@ export class PixiMapRenderer {
   private renderedPathZoom: number | null = null;
   private selectedMarkerId: string | null = null;
   private markerEditPreview: Marker | null = null;
+  private markerPlacementPreview: MarkerPlacementPreview | null = null;
+  private markerPlacementNode: Container | null = null;
   private cursor: BrushCursor | null = null;
   private gridVisible = false;
   private initialized = false;
@@ -160,7 +172,7 @@ export class PixiMapRenderer {
     this.paths.addChild(this.pathShapes, this.pathEdit, this.pathPreview, this.pathSelection);
     // Marker roots remain directly in the camera-transformed world layer.
     // Their visual children alone receive inverse zoom compensation.
-    this.markers.addChild(this.markerShapes, this.markerEdit, this.markerSelection);
+    this.markers.addChild(this.markerShapes, this.markerPlacement, this.markerEdit, this.markerSelection);
     this.terrainWorld.addChild(layerContainers[MapLayer.Terrain]);
     this.classificationWorld.addChild(this.terrainClassification);
     this.gridWorld.addChild(this.grid);
@@ -225,6 +237,9 @@ export class PixiMapRenderer {
     this.strokes = strokes;
     if (this.initialized) {
       this.rebuildTerrain();
+      // Path dot contrast is derived from the final semantic terrain result.
+      // Rebuild only the retained Paths layer; terrain replay remains unchanged.
+      this.rebuildPaths();
       this.scheduleTerrainRender();
       this.requestStageRender();
     }
@@ -312,6 +327,27 @@ export class PixiMapRenderer {
     if (this.initialized) {
       this.rebuildMarkerEditPreview();
       this.rebuildMarkerSelection();
+    }
+    this.requestStageRender();
+  }
+
+  /** Local cursor-follow placement affordance; it is never a map object. */
+  setMarkerPlacementPreview(preview: MarkerPlacementPreview | null): void {
+    const previous = this.markerPlacementPreview;
+    const existingNode = this.markerPlacementNode;
+    this.markerPlacementPreview = preview;
+    if (this.initialized) {
+      const canReposition =
+        preview !== null &&
+        previous !== null &&
+        existingNode !== null &&
+        preview.markerType === previous.markerType &&
+        preview.directionDegrees === previous.directionDegrees;
+      if (canReposition) {
+        existingNode.position.set(preview.point[0], preview.point[1]);
+      } else {
+        this.rebuildMarkerPlacementPreview();
+      }
     }
     this.requestStageRender();
   }
@@ -531,7 +567,7 @@ export class PixiMapRenderer {
 
     for (const path of ordered) {
       const graphic = new Graphics();
-      drawDottedPath(graphic, path, this.renderedPathZoom, PATH_COLOR, 0.92, false);
+      drawDottedPath(graphic, path, this.renderedPathZoom, this.strokes, undefined, 0.92, false);
       this.pathShapes.addChild(graphic);
       this.pathGraphics.set(path.id, graphic);
     }
@@ -553,7 +589,7 @@ export class PixiMapRenderer {
       original.visible = false;
     }
     const graphic = new Graphics();
-    drawDottedPath(graphic, this.pathEditPreview, this.camera?.zoom ?? 1, PATH_COLOR, 0.92, false);
+    drawDottedPath(graphic, this.pathEditPreview, this.camera?.zoom ?? 1, this.strokes, undefined, 0.92, false);
     this.pathEdit.addChild(graphic);
   }
 
@@ -563,7 +599,7 @@ export class PixiMapRenderer {
       return;
     }
     const graphic = new Graphics();
-    drawDottedPath(graphic, this.activePathPreview, this.camera?.zoom ?? 1, PATH_COLOR, 0.62, false);
+    drawDottedPath(graphic, this.activePathPreview, this.camera?.zoom ?? 1, this.strokes, undefined, 0.62, false);
     this.pathPreview.addChild(graphic);
   }
 
@@ -582,7 +618,7 @@ export class PixiMapRenderer {
 
     const zoom = this.camera?.zoom ?? 1;
     const highlight = new Graphics();
-    drawDottedPath(highlight, selected, zoom, PATH_SELECTION_COLOR, 0.38, true);
+    drawDottedPath(highlight, selected, zoom, this.strokes, PATH_SELECTION_COLOR, 0.38, true);
     this.pathSelection.addChild(highlight);
 
     if (selected.geometryType === 'freehand') {
@@ -594,7 +630,7 @@ export class PixiMapRenderer {
       handles
         .circle(point[0], point[1], radius)
         .fill({ color: 0xf2eee4, alpha: 0.96 })
-        .stroke({ color: PATH_COLOR, alpha: 0.9, width: 1.35 / zoom });
+        .stroke({ color: PATH_DARK_COLOR, alpha: 0.9, width: 1.35 / zoom });
     }
     this.pathSelection.addChild(handles);
   }
@@ -630,6 +666,26 @@ export class PixiMapRenderer {
       original.visible = false;
     }
     this.markerEdit.addChild(createMarkerRenderable(this.markerEditPreview, this.camera?.zoom ?? 1).root);
+  }
+
+  private rebuildMarkerPlacementPreview(): void {
+    destroyChildren(this.markerPlacement);
+    this.markerPlacementNode = null;
+    if (this.markerPlacementPreview === null) {
+      return;
+    }
+    const preview = this.markerPlacementPreview;
+    const renderable = createMarkerRenderable({
+      markerType: preview.markerType,
+      x: preview.point[0],
+      y: preview.point[1],
+      name: null,
+      sizeScale: 1,
+      directionDegrees: preview.directionDegrees,
+    }, this.camera?.zoom ?? 1);
+    renderable.root.alpha = 0.68;
+    this.markerPlacement.addChild(renderable.root);
+    this.markerPlacementNode = renderable.root;
   }
 
   private rebuildMarkerSelection(): void {
@@ -669,6 +725,9 @@ export class PixiMapRenderer {
     const editVisual = editRoot?.children[0];
     if (editVisual instanceof Container && this.markerEditPreview !== null) {
       applyMarkerVisualTransform(editVisual, this.markerEditPreview, zoom);
+    }
+    if (this.markerPlacementPreview !== null) {
+      this.rebuildMarkerPlacementPreview();
     }
   }
 
@@ -792,7 +851,9 @@ export class PixiMapRenderer {
 type TerrainStroke = Pick<TerrainPreview, 'mode' | 'biome' | 'brushWidth' | 'points'>;
 type DottedPath = Pick<Path, 'geometryType' | 'points'> | PathPreview;
 
-function createMarkerRenderable(marker: Marker, zoom: number): { root: Container; visual: Container } {
+type MarkerVisual = Pick<Marker, 'markerType' | 'x' | 'y' | 'name' | 'sizeScale' | 'directionDegrees'>;
+
+function createMarkerRenderable(marker: MarkerVisual, zoom: number): { root: Container; visual: Container } {
   const root = new Container();
   root.position.set(marker.x, marker.y);
   const visual = new Container();
@@ -821,7 +882,7 @@ function createMarkerRenderable(marker: Marker, zoom: number): { root: Container
 }
 
 /** Assigns all marker visual transforms from canonical marker data. */
-function applyMarkerVisualTransform(visual: Container, marker: Marker, zoom: number): void {
+function applyMarkerVisualTransform(visual: Container, marker: Pick<Marker, 'sizeScale'>, zoom: number): void {
   visual.scale.set(markerRootWorldScale(zoom));
   const icon = visual.children[0];
   if (icon !== undefined) {
@@ -842,7 +903,8 @@ function drawDottedPath(
   graphic: Graphics,
   path: DottedPath,
   zoom: number,
-  color: number,
+  terrainStrokes: readonly BiomeStroke[],
+  overrideColor: number | undefined,
   alpha: number,
   highlighted: boolean,
 ): void {
@@ -851,8 +913,8 @@ function drawDottedPath(
     return;
   }
 
-  const radius = (highlighted ? PATH_DOT_RADIUS_CSS + 1.15 : PATH_DOT_RADIUS_CSS) / zoom;
-  const spacing = PATH_DOT_SPACING_CSS / zoom;
+  const { radiusWorld, spacingWorld } = dottedPathVisualStyle(zoom, highlighted);
+  const orderedTerrainStrokes = overrideColor === undefined ? orderTerrainStrokes(terrainStrokes) : [];
   let nextDotAt = 0;
   let distanceBeforeSegment = 0;
   let dots = 0;
@@ -861,7 +923,8 @@ function drawDottedPath(
     if (dots >= MAX_DOTS_PER_PATH) {
       return;
     }
-    graphic.circle(x, y, radius).fill({ color, alpha });
+    const color = overrideColor ?? pathColorForVisibleBiome(resolveVisibleBiomeAtPointInOrder(orderedTerrainStrokes, [x, y]));
+    graphic.circle(x, y, radiusWorld).fill({ color, alpha });
     dots += 1;
   };
 
@@ -883,7 +946,7 @@ function drawDottedPath(
     while (nextDotAt <= segmentEnd && dots < MAX_DOTS_PER_PATH) {
       const along = Math.max(0, nextDotAt - distanceBeforeSegment) / segmentLength;
       drawDot(start[0] + deltaX * along, start[1] + deltaY * along);
-      nextDotAt += spacing;
+      nextDotAt += spacingWorld;
     }
     distanceBeforeSegment = segmentEnd;
   }

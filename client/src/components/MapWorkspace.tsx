@@ -9,6 +9,7 @@ import { useMapSession } from '../state/useMapSession';
 import type { MapTool } from '../state/mapTool';
 import { mapToValheimCoordinates } from '../lib/valheimCoordinates';
 import { CoordinateNavigator } from './CoordinateNavigator';
+import { clearMarkerInteraction, toggleArmedMarkerType } from '../lib/markerPlacement';
 
 const DEFAULT_BIOME: Biome = 'meadows';
 const DEFAULT_BRUSH_WIDTH = 120;
@@ -24,15 +25,38 @@ export function MapWorkspace() {
   const [pathsVisible, setPathsVisible] = useState(true);
   const [pathGeometryType, setPathGeometryType] = useState<PathGeometryType>('freehand');
   const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
-  const [activeMarkerType, setActiveMarkerType] = useState('home');
+  const [armedMarkerType, setArmedMarkerType] = useState<string | null>(null);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [markerPreview, setMarkerPreview] = useState<Marker | null>(null);
 
   useEffect(() => {
+    const cleared = clearMarkerInteraction();
     setSelectedPathId(null);
-    setSelectedMarkerId(null);
+    setSelectedMarkerId(cleared.selectedMarkerId);
     setMarkerPreview(null);
+    setArmedMarkerType(cleared.armedMarkerType);
   }, [mapSession.currentMap?.id]);
+
+  const changeTool = useCallback((nextTool: MapTool) => {
+    setTool(nextTool);
+    if (nextTool !== 'marker') {
+      setArmedMarkerType(null);
+    }
+    if (nextTool === 'pan' || nextTool === 'biome_brush' || nextTool === 'eraser' || nextTool === 'path') {
+      const cleared = clearMarkerInteraction();
+      setSelectedMarkerId(cleared.selectedMarkerId);
+      setMarkerPreview(null);
+    }
+  }, []);
+
+  const toggleMarkerPlacement = useCallback((markerType: string) => {
+    setTool('marker');
+    setArmedMarkerType((current) => toggleArmedMarkerType(current, markerType));
+  }, []);
+
+  const disarmMarkerPlacement = useCallback(() => {
+    setArmedMarkerType(null);
+  }, []);
 
   const selectPath = useCallback((pathId: string | null) => {
     setSelectedPathId(pathId);
@@ -79,30 +103,44 @@ export function MapWorkspace() {
     [mapSession.camera, mapSession.setCamera],
   );
 
+  const requestUndo = useCallback(() => {
+    canvasRef.current?.cancelTransientInteraction();
+    void mapSession.undo();
+  }, [mapSession.undo]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isTypingTarget(event.target) || event.metaKey || event.ctrlKey || event.altKey) {
+      if (isTypingTarget(event.target)) {
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && !event.altKey && !event.shiftKey) {
+        event.preventDefault();
+        requestUndo();
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) {
         return;
       }
 
       switch (event.key.toLowerCase()) {
         case 'h':
-          setTool('pan');
+          changeTool('pan');
           break;
         case 'b':
-          setTool('biome_brush');
+          changeTool('biome_brush');
           break;
         case 'e':
-          setTool('eraser');
+          changeTool('eraser');
           break;
         case 'p':
-          setTool('path');
+          changeTool('path');
           break;
         case 'v':
-          setTool('select');
+          changeTool('select');
           break;
         case 'm':
-          setTool('marker');
+          changeTool('marker');
           break;
         default:
           break;
@@ -111,7 +149,7 @@ export function MapWorkspace() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [changeTool, requestUndo]);
 
   return (
     <main className="map-workspace">
@@ -128,7 +166,7 @@ export function MapWorkspace() {
         pendingMarkerIds={mapSession.pendingMarkerIds}
         pathsVisible={pathsVisible}
         pathGeometryType={pathGeometryType}
-        activeMarkerType={activeMarkerType}
+        armedMarkerType={armedMarkerType}
         selectedPathId={selectedPathId}
         selectedMarkerId={selectedMarkerId}
         markerPreview={markerPreview}
@@ -146,6 +184,8 @@ export function MapWorkspace() {
         onMarkerUpdate={updateMarker}
         onMarkerDelete={deleteMarker}
         onMarkerSelectionChange={selectMarker}
+        onMarkerPlacementDisarm={disarmMarkerPlacement}
+        onToolChange={changeTool}
       />
 
       {gridVisible && <div className="map-centre-reticle" aria-hidden="true" />}
@@ -168,6 +208,9 @@ export function MapWorkspace() {
         </button>
         <button type="button" onClick={() => canvasRef.current?.zoomToOne()}>
           Zoom to 100%
+        </button>
+        <button type="button" onClick={requestUndo} disabled={mapSession.undoPending}>
+          Undo
         </button>
         <button
           type="button"
@@ -199,7 +242,7 @@ export function MapWorkspace() {
         pathGeometryType={pathGeometryType}
         hasSelectedPath={selectedPathId !== null}
         selectedPathPending={selectedPathId !== null && mapSession.pendingPathIds.has(selectedPathId)}
-        onToolChange={setTool}
+        onToolChange={changeTool}
         onBiomeChange={setBiome}
         onBrushWidthChange={setBrushWidth}
         onPathGeometryTypeChange={setPathGeometryType}
@@ -207,7 +250,7 @@ export function MapWorkspace() {
       />
 
       {tool === 'marker' && (
-        <MarkerPalette activeMarkerType={activeMarkerType} onMarkerTypeChange={setActiveMarkerType} />
+        <MarkerPalette armedMarkerType={armedMarkerType} onMarkerTypeChange={toggleMarkerPlacement} />
       )}
 
       {selectedMarker !== null && (
@@ -237,6 +280,7 @@ export function MapWorkspace() {
         )}
         {mapSession.pendingStrokeCount + mapSession.pendingPathMutationCount + mapSession.pendingMarkerMutationCount > 0 && <div>Saving…</div>}
         {mapSession.saveError !== null && <div className="map-debug__error">Save failed: {mapSession.saveError}</div>}
+        {mapSession.undoMessage !== null && <div>{mapSession.undoMessage}</div>}
       </output>
 
       {mapSession.loadState !== 'ready' && (

@@ -1,16 +1,16 @@
 import { MARKER_GROUPS, MARKER_ICONS, markerSvgMarkup, type MarkerIconDefinition } from '../lib/markerIcons';
 
 interface MarkerPaletteProps {
-  activeMarkerType: string;
+  armedMarkerType: string | null;
   onMarkerTypeChange: (markerType: string) => void;
 }
 
-export function MarkerPalette({ activeMarkerType, onMarkerTypeChange }: MarkerPaletteProps) {
+export function MarkerPalette({ armedMarkerType, onMarkerTypeChange }: MarkerPaletteProps) {
   return (
     <section className="marker-palette" aria-label="Marker palette">
       <header>
         <strong>Markers</strong>
-        <span>Choose an icon, then place it on the map.</span>
+        <span>{armedMarkerType === null ? 'Choose an icon to arm one placement.' : 'Armed for one placement.'}</span>
       </header>
       <div className="marker-palette__groups">
         {MARKER_GROUPS.map((group) => {
@@ -23,8 +23,8 @@ export function MarkerPalette({ activeMarkerType, onMarkerTypeChange }: MarkerPa
                   <button
                     key={icon.type}
                     type="button"
-                    className={icon.type === activeMarkerType ? 'marker-palette__item marker-palette__item--active' : 'marker-palette__item'}
-                    aria-pressed={icon.type === activeMarkerType}
+                    className={icon.type === armedMarkerType ? 'marker-palette__item marker-palette__item--active' : 'marker-palette__item'}
+                    aria-pressed={icon.type === armedMarkerType}
                     onClick={() => onMarkerTypeChange(icon.type)}
                   >
                     <MarkerIconPreview icon={icon} />

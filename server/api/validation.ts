@@ -107,6 +107,7 @@ export const updateObjectSchema = mutationMetadataSchema.extend({
 export const lifecycleObjectSchema = mutationMetadataSchema.extend({
   baseObjectVersion: z.number().int().positive(),
 });
+export const undoSchema = mutationMetadataSchema;
 
 export type MapNameInput = z.infer<typeof mapNameSchema>;
 export type DuplicateMapInput = z.infer<typeof duplicateMapSchema>;
@@ -114,3 +115,4 @@ export type ObjectInput = z.infer<typeof objectInputSchema>;
 export type CreateObjectInput = z.infer<typeof createObjectSchema>;
 export type UpdateObjectInput = z.infer<typeof updateObjectSchema>;
 export type LifecycleObjectInput = z.infer<typeof lifecycleObjectSchema>;
+export type UndoInput = z.infer<typeof undoSchema>;

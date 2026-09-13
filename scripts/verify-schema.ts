@@ -62,6 +62,13 @@ function verifyFreshSchema(database: Database.Database): void {
     ],
   );
   assert.equal(database.pragma('foreign_keys', { simple: true }), 1);
+  const operationColumns = database.prepare('PRAGMA table_info(map_operations)').all() as Array<{ name: string }>;
+  assert.ok(operationColumns.some((column) => column.name === 'undo_of_operation_id'));
+  assert.ok(
+    (database
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'map_operations_undo_target_unique'")
+      .get()) !== undefined,
+  );
 
   insertMap(database);
   insertObject(database, 'lava-stroke', 'biome_stroke', 0, 1);

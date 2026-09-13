@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { Container, Graphics } from 'pixi.js';
 import { MapLayer, type Marker } from '../shared/domain.ts';
 import {
@@ -23,6 +24,11 @@ import {
   markerRootWorldScale,
   markerVisualDiameterCss,
 } from '../client/src/lib/markerGeometry.ts';
+import {
+  clearMarkerInteraction,
+  markerSelectionAfterClick,
+  toggleArmedMarkerType,
+} from '../client/src/lib/markerPlacement.ts';
 
 const TEST_WORLD_POINT = [1000, 500] as const;
 const TEST_VIEWPORT_CENTER = [500, 400] as const;
@@ -84,6 +90,47 @@ assertVector(vegvisirArrowVector(270, 10), [-10, 0]);
 
 assert.equal(normaliseMarkerCaption('  Home  '), 'Home');
 assert.equal(normaliseMarkerCaption('   '), null);
+
+// Placement is a local single-shot state machine, separate from persisted markers.
+assert.equal(toggleArmedMarkerType(null, 'home'), 'home');
+assert.equal(toggleArmedMarkerType('home', 'home'), null);
+assert.equal(toggleArmedMarkerType('home', 'ship'), 'ship');
+assert.equal(toggleArmedMarkerType('ship', 'home'), 'home');
+assert.equal(markerSelectionAfterClick(null, 'marker-a'), 'marker-a');
+assert.equal(markerSelectionAfterClick('marker-a', 'marker-a'), null);
+assert.equal(markerSelectionAfterClick('marker-a', 'marker-b'), 'marker-b');
+assert.deepEqual(clearMarkerInteraction(), {
+  armedMarkerType: null,
+  selectedMarkerId: null,
+});
+
+const canvasSource = readFileSync(
+  new URL('../client/src/components/map/MapCanvas.tsx', import.meta.url),
+  'utf8',
+);
+assert.match(canvasSource, /interface MarkerPlacementState/);
+assert.match(canvasSource, /setMarkerPlacementPreview/);
+assert.match(canvasSource, /markerPlacementStateRef\.current = null/);
+assert.match(canvasSource, /selectMarker\(hitMarker\.id\)/);
+assert.match(canvasSource, /onToolChange\('pan'\)/);
+assert.match(canvasSource, /spaceHeldRef/);
+assert.match(canvasSource, /activePointerGestureRef/);
+assert.match(canvasSource, /selectMarker\(id\)/);
+assert.match(canvasSource, /clearMarkerPlacement\(\);[\s\S]*selectMarker\(id\)/);
+assert.match(canvasSource, /postPlacementMarkerSelectRef/);
+assert.match(canvasSource, /toolRef\.current = 'select'/);
+assert.match(canvasSource, /postPlacementSelect/);
+assert.match(canvasSource, /postPlacementSelect[\s\S]*toolRef\.current = 'pan'/);
+assert.match(canvasSource, /postPlacementMarkerSelectRef\.current = true;[\s\S]*toolRef\.current = 'select';[\s\S]*onToolChange\('select'\)/);
+assert.match(canvasSource, /postPlacementMarkerSelectRef\.current = false;[\s\S]*toolRef\.current = 'pan';[\s\S]*onToolChange\('pan'\)/);
+assert.match(canvasSource, /if \(markerType === null\) \{[\s\S]*selectMarker\(null\);[\s\S]*onToolChange\('pan'\)/);
+
+const workspaceSource = readFileSync(
+  new URL('../client/src/components/MapWorkspace.tsx', import.meta.url),
+  'utf8',
+);
+assert.match(workspaceSource, /clearMarkerInteraction/);
+assert.match(workspaceSource, /setArmedMarkerType\(null\)/);
 
 const redCross = markerSvgMarkup('red_cross');
 assert.match(redCross, /M17 17 47 47M47 17 17 47/);

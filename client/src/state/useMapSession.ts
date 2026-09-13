@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { BiomeStroke, Id, MapObject, MapRecord, Marker, Path } from '../../../shared/domain';
-import { createMap, deleteMap, duplicateMap, listMaps, loadMapState, renameMap } from '../api/maps';
+import { createMap, deleteMap, duplicateMap, listMaps, loadMapState, renameMap, undoMap as requestUndo } from '../api/maps';
 import { ApiClientError } from '../api/http';
 import {
   createBiomeStroke,
@@ -55,6 +55,7 @@ export function useMapSession() {
   const pathMutationGuardRef = useRef(new ScopedMutationGuard());
   const markerMutationGuardRef = useRef(new ScopedMutationGuard());
   const mapActionInFlightRef = useRef(false);
+  const undoInFlightRef = useRef(false);
   const currentSocketRef = useRef<WebSocket | null>(null);
   const socketGenerationRef = useRef(0);
 
@@ -72,6 +73,8 @@ export function useMapSession() {
   const [loadState, setLoadState] = useState<MapLoadState>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [undoMessage, setUndoMessage] = useState<string | null>(null);
+  const [undoPending, setUndoPending] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const [mapActionBusy, setMapActionBusy] = useState(false);
   const [collaborationStatus, setCollaborationStatus] = useState<
@@ -128,6 +131,7 @@ export function useMapSession() {
       setMaps((current) => replaceMap(mapList ?? current, state.map));
       setLoadError(null);
       setMapError(null);
+      setUndoMessage(null);
       setLoadState('ready');
       rememberMapId(state.map.id);
       if (resetCamera) {
@@ -1004,6 +1008,58 @@ export function useMapSession() {
     }
   }, [beginMarkerMutation, finishMarkerMutation]);
 
+  const undoCurrentChange = useCallback(async (): Promise<void> => {
+    const map = currentMapRef.current;
+    if (map === null || mapActionInFlightRef.current || undoInFlightRef.current) {
+      return;
+    }
+    if (pendingSaveCountRef.current > 0) {
+      setUndoMessage('Wait for the active save to finish before undoing.');
+      return;
+    }
+
+    const mapId = map.id;
+    const clientOperationId = crypto.randomUUID();
+    undoInFlightRef.current = true;
+    pendingSaveCountRef.current += 1;
+    trackPendingOperation(clientOperationId, mapId, '');
+    setUndoPending(true);
+    setUndoMessage(null);
+
+    try {
+      const result = await requestUndo(
+        mapId,
+        actorIdRef.current ?? (actorIdRef.current = actorId()),
+        clientOperationId,
+      );
+      if (currentMapRef.current?.id !== mapId) {
+        return;
+      }
+      if (!result.undone) {
+        setUndoMessage('Nothing to undo.');
+        return;
+      }
+
+      // The inverse is an ordinary authoritative mutation and may arrive on
+      // the socket before or after this response. Reloading the committed
+      // state makes both orderings converge without a second client store.
+      const state = await loadMapState(mapId);
+      if (currentMapRef.current?.id !== mapId) {
+        return;
+      }
+      applyLoadedMap(state, undefined, false);
+    } catch (error) {
+      if (currentMapRef.current?.id === mapId) {
+        setUndoMessage(toMessage(error, 'Undo failed.'));
+      }
+    } finally {
+      pendingOperationIdsRef.current.delete(clientOperationId);
+      finishPendingMutation();
+      undoInFlightRef.current = false;
+      setUndoPending(false);
+    }
+  }, [applyLoadedMap, finishPendingMutation, trackPendingOperation]);
+
   const strokes = useMemo(
     () =>
       [...objects.filter(isBiomeStroke), ...pendingStrokes].sort(
@@ -1046,12 +1102,15 @@ export function useMapSession() {
     saveError,
     mapError,
     mapActionBusy,
+    undoMessage,
+    undoPending,
     collaborationStatus,
     mapActionsDisabled:
       mapActionBusy ||
       pendingStrokes.length > 0 ||
       pendingPathMutationCount > 0 ||
       pendingMarkerMutationCount > 0 ||
+      undoPending ||
       loadState === 'loading',
     retryBootstrap: bootstrap,
     switchMap,
@@ -1066,6 +1125,7 @@ export function useMapSession() {
     saveMarker,
     saveMarkerUpdate,
     removeMarker,
+    undo: undoCurrentChange,
   };
 }
 

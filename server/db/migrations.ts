@@ -204,4 +204,21 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 4,
+    name: 'add_undo_operation_links',
+    up(database) {
+      database.exec(`
+        ALTER TABLE map_operations
+          ADD COLUMN undo_of_operation_id TEXT REFERENCES map_operations(id);
+
+        CREATE UNIQUE INDEX map_operations_undo_target_unique
+          ON map_operations(undo_of_operation_id)
+          WHERE undo_of_operation_id IS NOT NULL;
+
+        CREATE INDEX map_operations_actor_history
+          ON map_operations(map_id, actor_id, map_revision DESC);
+      `);
+    },
+  },
 ];

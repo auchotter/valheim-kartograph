@@ -25,6 +25,21 @@ export interface ObjectMutationResult {
   idempotent: boolean;
 }
 
+export interface UndoResult {
+  undone: boolean;
+  reason?: 'empty';
+  targetOperationId?: string;
+  inverseOperationId?: string;
+  mapRevision?: number;
+  objectType?: MapObject['objectType'];
+  objectId?: string;
+  action?: MapOperation['operationType'];
+  idempotent: boolean;
+  mutation?: ObjectMutationResult;
+}
+
+const UNDO_HISTORY_LIMIT = 20;
+
 export type AcceptedObjectMutationListener = (result: ObjectMutationResult) => void;
 export type MapDeletedListener = (mapId: string) => void;
 
@@ -191,6 +206,59 @@ export class MapService {
     return this.changeObjectDeletion(mapId, objectId, input, false);
   }
 
+  undoMap(mapId: string, actorId: string, clientOperationId: string): UndoResult {
+    const result = this.repository.transaction(() => {
+      this.requireActiveMap(mapId);
+
+      const retry = this.repository.findOperation(mapId, actorId, clientOperationId);
+      if (retry !== null) {
+        if (retry.undoOfOperationId === null) {
+          throw new ConflictError('That client operation ID was already used for another mutation.');
+        }
+        return undoResultFromMutation(retry, true);
+      }
+
+      const candidates = this.repository.listUndoCandidates(mapId, actorId, UNDO_HISTORY_LIMIT);
+      for (const target of candidates) {
+        const current = target.objectId === null
+          ? null
+          : this.repository.findObject(mapId, target.objectId, true);
+        const targetAfter = asMapObject(target.payload.after);
+        if (current === null || targetAfter === null || !sameSemanticObject(current, targetAfter)) {
+          continue;
+        }
+
+        const targetBefore = asMapObject(target.payload.before);
+        const now = timestamp();
+        const inverse = inverseObject(target.operationType, current, targetBefore, now);
+        if (inverse === null) {
+          continue;
+        }
+
+        this.repository.updateObject(inverse.object);
+        const mutation = this.acceptMutation(
+          mapId,
+          actorId,
+          clientOperationId,
+          inverse.operationType,
+          current,
+          inverse.object,
+          current.objectVersion,
+          now,
+          target.id,
+        );
+        return undoResultFromMutation(mutation.operation, false, target.id, mutation);
+      }
+
+      return { undone: false, reason: 'empty', idempotent: false } satisfies UndoResult;
+    });
+
+    if (result.mutation !== undefined) {
+      this.publishAcceptedObjectMutation(result.mutation);
+    }
+    return result;
+  }
+
   private changeObjectDeletion(
     mapId: string,
     objectId: string,
@@ -264,6 +332,7 @@ export class MapService {
     after: MapObject,
     baseObjectVersion: number | null,
     now: string,
+    undoOfOperationId: string | null = null,
   ): ObjectMutationResult {
     const mapRevision = this.repository.updateMapRevision(mapId, now);
     const operation: MapOperation = {
@@ -277,6 +346,7 @@ export class MapService {
       baseObjectVersion,
       payload: { before, after },
       createdAt: now,
+      undoOfOperationId,
     };
     this.repository.insertOperation(operation);
     return { object: after, mapRevision, operation, idempotent: false };
@@ -394,6 +464,110 @@ function boundsForInput(input: ObjectInput) {
     return strokedPointBounds(input.points, input.strokeWidth);
   }
   return pointBounds(input.x, input.y);
+}
+
+function asMapObject(value: unknown): MapObject | null {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+  const candidate = value as Partial<MapObject>;
+  return typeof candidate.id === 'string' &&
+    typeof candidate.mapId === 'string' &&
+    typeof candidate.objectType === 'string'
+    ? value as MapObject
+    : null;
+}
+
+function sameSemanticObject(left: MapObject, right: MapObject): boolean {
+  return JSON.stringify(semanticObject(left)) === JSON.stringify(semanticObject(right));
+}
+
+function semanticObject(object: MapObject): unknown {
+  // The deletion timestamp is generated bookkeeping. Preserve its visible
+  // lifecycle state for safety checks without making a later inverse delete
+  // look unrelated solely because its timestamp differs.
+  const lifecycle = { objectType: object.objectType, deleted: object.deletedAt !== null };
+  if (object.objectType === 'biome_stroke') {
+    return { ...lifecycle, mode: object.mode, biome: object.biome, brushWidth: object.brushWidth, points: object.points };
+  }
+  if (object.objectType === 'path') {
+    return {
+      ...lifecycle,
+      pathType: object.pathType,
+      geometryType: object.geometryType,
+      strokeWidth: object.strokeWidth,
+      points: object.points,
+    };
+  }
+  if (object.objectType === 'marker') {
+    return {
+      ...lifecycle,
+      markerType: object.markerType,
+      x: object.x,
+      y: object.y,
+      name: object.name,
+      note: object.note,
+      sizeScale: object.sizeScale,
+      directionDegrees: object.directionDegrees,
+    };
+  }
+  return { ...lifecycle, x: object.x, y: object.y, text: object.text, fontSize: object.fontSize };
+}
+
+function inverseObject(
+  operationType: string,
+  current: MapObject,
+  before: MapObject | null,
+  now: string,
+): { operationType: 'object.update' | 'object.delete' | 'object.restore'; object: MapObject } | null {
+  if (operationType === 'object.create' || operationType === 'object.restore') {
+    return {
+      operationType: 'object.delete',
+      object: { ...current, objectVersion: current.objectVersion + 1, updatedAt: now, deletedAt: now },
+    };
+  }
+  if (operationType === 'object.delete') {
+    return {
+      operationType: 'object.restore',
+      object: { ...current, objectVersion: current.objectVersion + 1, updatedAt: now, deletedAt: null },
+    };
+  }
+  if (operationType !== 'object.update' || before === null || before.id !== current.id || before.objectType !== current.objectType) {
+    return null;
+  }
+  return {
+    operationType: 'object.update',
+    object: {
+      ...before,
+      id: current.id,
+      mapId: current.mapId,
+      layer: current.layer,
+      orderKey: current.orderKey,
+      objectVersion: current.objectVersion + 1,
+      createdAt: current.createdAt,
+      updatedAt: now,
+    } as MapObject,
+  };
+}
+
+function undoResultFromMutation(
+  operation: MapOperation,
+  idempotent: boolean,
+  targetOperationId = operation.undoOfOperationId ?? operation.id,
+  mutation?: ObjectMutationResult,
+): UndoResult {
+  const object = asMapObject(operation.payload.after) ?? asMapObject(operation.payload.before);
+  return {
+    undone: true,
+    targetOperationId,
+    inverseOperationId: operation.id,
+    mapRevision: operation.mapRevision,
+    objectType: object?.objectType,
+    objectId: operation.objectId ?? undefined,
+    action: operation.operationType,
+    idempotent,
+    mutation,
+  };
 }
 
 function timestamp(): string {

@@ -63,6 +63,7 @@ interface OperationRow {
   base_object_version: number | null;
   payload_json: string;
   created_at: string;
+  undo_of_operation_id: string | null;
 }
 
 const objectSelect = `
@@ -242,13 +243,34 @@ export class MapRepository {
     return row === undefined ? null : toMapOperation(row);
   }
 
+  listUndoCandidates(mapId: string, actorId: string, limit: number): MapOperation[] {
+    const rows = this.database
+      .prepare(
+        `SELECT operation.*
+         FROM map_operations AS operation
+         WHERE operation.map_id = ?
+           AND operation.actor_id = ?
+           AND operation.undo_of_operation_id IS NULL
+           AND operation.operation_type IN ('object.create', 'object.update', 'object.delete', 'object.restore')
+           AND NOT EXISTS (
+             SELECT 1
+             FROM map_operations AS inverse
+             WHERE inverse.undo_of_operation_id = operation.id
+           )
+         ORDER BY operation.map_revision DESC
+         LIMIT ?`,
+      )
+      .all(mapId, actorId, limit) as OperationRow[];
+    return rows.map(toMapOperation);
+  }
+
   insertOperation(operation: MapOperation): void {
     this.database
       .prepare(
         `INSERT INTO map_operations (
           id, map_id, map_revision, actor_id, client_operation_id, operation_type,
-          object_id, base_object_version, payload_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          object_id, base_object_version, payload_json, created_at, undo_of_operation_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         operation.id,
@@ -261,6 +283,7 @@ export class MapRepository {
         operation.baseObjectVersion,
         JSON.stringify(operation.payload),
         operation.createdAt,
+        operation.undoOfOperationId,
       );
   }
 
@@ -408,6 +431,7 @@ function toMapOperation(row: OperationRow): MapOperation {
     baseObjectVersion: row.base_object_version,
     payload: JSON.parse(row.payload_json) as MapOperation['payload'],
     createdAt: row.created_at,
+    undoOfOperationId: row.undo_of_operation_id,
   };
 }
 

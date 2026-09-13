@@ -7,6 +7,7 @@ import {
   mapIdParamsSchema,
   mapNameSchema,
   objectIdParamsSchema,
+  undoSchema,
   updateObjectSchema,
 } from './validation.js';
 import { MapService } from '../services/mapService.js';
@@ -45,6 +46,14 @@ export async function registerMapRoutes(app: FastifyInstance, service: MapServic
     const { mapId } = parse(mapIdParamsSchema, request.params);
     const result = service.createObject(mapId, parse(createObjectSchema, request.body));
     return reply.code(result.idempotent ? 200 : 201).send(result);
+  });
+
+  app.post('/api/maps/:mapId/undo', async (request) => {
+    const { mapId } = parse(mapIdParamsSchema, request.params);
+    const input = parse(undoSchema, request.body);
+    const result = service.undoMap(mapId, input.actorId, input.clientOperationId);
+    const { mutation: _mutation, ...response } = result;
+    return response;
   });
 
   app.put('/api/maps/:mapId/objects/:objectId', async (request) => {

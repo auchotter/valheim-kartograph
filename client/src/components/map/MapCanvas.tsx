@@ -30,16 +30,23 @@ import {
   type CompletedPathGesture,
 } from '../../lib/pathGeometry';
 import { hitTestMarker, movedMarker } from '../../lib/markerGeometry';
+import { initialPointerGesture } from '../../lib/pointerGesture';
 import type { CompletedMarkerGesture } from '../../lib/markerObject';
 import type { MapTool } from '../../state/mapTool';
 import { isBrushTool } from '../../state/mapTool';
-import { PixiMapRenderer, type PathPreview, type TerrainPreview } from './PixiMapRenderer';
+import {
+  PixiMapRenderer,
+  type MarkerPlacementPreview,
+  type PathPreview,
+  type TerrainPreview,
+} from './PixiMapRenderer';
 
 export interface MapCanvasHandle {
   resetView: () => void;
   zoomToOne: () => void;
   deleteSelectedPath: () => void;
   deleteSelectedMarker: () => void;
+  cancelTransientInteraction: () => void;
 }
 
 interface MapCanvasProps {
@@ -54,7 +61,7 @@ interface MapCanvasProps {
   pendingMarkerIds: ReadonlySet<string>;
   pathsVisible: boolean;
   pathGeometryType: PathGeometryType;
-  activeMarkerType: string;
+  armedMarkerType: string | null;
   selectedPathId: string | null;
   selectedMarkerId: string | null;
   markerPreview: Marker | null;
@@ -72,6 +79,8 @@ interface MapCanvasProps {
   onMarkerUpdate: (marker: Marker) => void;
   onMarkerDelete: (markerId: string) => void;
   onMarkerSelectionChange: (markerId: string | null) => void;
+  onMarkerPlacementDisarm: () => void;
+  onToolChange: (tool: MapTool) => void;
 }
 
 interface PanState {
@@ -107,6 +116,29 @@ interface MarkerDragState {
   pointerId: number;
   marker: Marker;
   moved: boolean;
+  wasSelected: boolean;
+}
+
+interface MarkerPlacementState {
+  pointerId: number;
+  screenPoint: ScreenPoint;
+  point: WorldPoint;
+  markerType: string;
+  moved: boolean;
+}
+
+type PointerGestureKind =
+  | 'pan'
+  | 'biome-draw'
+  | 'erase'
+  | 'path-draw'
+  | 'path-edit'
+  | 'marker-drag'
+  | 'marker-place';
+
+interface ActivePointerGesture {
+  pointerId: number;
+  kind: PointerGestureKind;
 }
 
 interface PositionedEvent {
@@ -128,7 +160,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     pendingMarkerIds,
     pathsVisible,
     pathGeometryType,
-    activeMarkerType,
+    armedMarkerType,
     selectedPathId,
     selectedMarkerId,
     markerPreview,
@@ -146,6 +178,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     onMarkerUpdate,
     onMarkerDelete,
     onMarkerSelectionChange,
+    onMarkerPlacementDisarm,
+    onToolChange,
   },
   ref,
 ) {
@@ -163,7 +197,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   const pathGeometryTypeRef = useRef(pathGeometryType);
   const selectedPathIdRef = useRef<string | null>(selectedPathId);
   const selectedMarkerIdRef = useRef<string | null>(selectedMarkerId);
-  const activeMarkerTypeRef = useRef(activeMarkerType);
+  const armedMarkerTypeRef = useRef<string | null>(armedMarkerType);
+  const postPlacementMarkerSelectRef = useRef(false);
+  const pathCreationArmedRef = useRef(tool === 'path');
+  const previousToolRef = useRef(tool);
   const markerPreviewRef = useRef<Marker | null>(markerPreview);
   const pathsVisibleRef = useRef(pathsVisible);
   const biomeRef = useRef(biome);
@@ -174,8 +211,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   const pathDrawingStateRef = useRef<PathDrawingState | null>(null);
   const pathEditStateRef = useRef<PathEditState | null>(null);
   const markerDragStateRef = useRef<MarkerDragState | null>(null);
+  const markerPlacementStateRef = useRef<MarkerPlacementState | null>(null);
+  const activePointerGestureRef = useRef<ActivePointerGesture | null>(null);
   const pointerWorldRef = useRef<WorldPoint | null>(null);
-  const spacePressedRef = useRef(false);
+  // This must be synchronous: pointerdown cannot safely wait for React state.
+  const spaceHeldRef = useRef(false);
 
   const commitCamera = useCallback(
     (nextCamera: Camera) => {
@@ -204,6 +244,49 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     [],
   );
 
+  const clearMarkerPlacement = useCallback(() => {
+    armedMarkerTypeRef.current = null;
+    markerPlacementStateRef.current = null;
+    rendererRef.current?.setMarkerPlacementPreview(null);
+    onMarkerPlacementDisarm();
+  }, [onMarkerPlacementDisarm]);
+
+  const cancelActivePointerGesture = useCallback(() => {
+    activePointerGestureRef.current = null;
+    panStateRef.current = null;
+    drawingStateRef.current = null;
+    pathDrawingStateRef.current = null;
+    pathEditStateRef.current = null;
+    markerDragStateRef.current = null;
+    markerPlacementStateRef.current = null;
+    rendererRef.current?.setTerrainPreview(null);
+    rendererRef.current?.setPathPreview(null);
+    rendererRef.current?.setPathEditPreview(null);
+    rendererRef.current?.setMarkerEditPreview(null);
+    rendererRef.current?.setMarkerPlacementPreview(null);
+  }, []);
+
+  const cancelTransientInteraction = useCallback(() => {
+    cancelActivePointerGesture();
+    if (armedMarkerTypeRef.current !== null) {
+      clearMarkerPlacement();
+    }
+  }, [cancelActivePointerGesture, clearMarkerPlacement]);
+
+  const updateMarkerPlacementPreview = useCallback((point: WorldPoint | null) => {
+    const markerType = armedMarkerTypeRef.current;
+    if (toolRef.current !== 'marker' || markerType === null || point === null) {
+      rendererRef.current?.setMarkerPlacementPreview(null);
+      return;
+    }
+    const preview: MarkerPlacementPreview = {
+      markerType,
+      point,
+      directionDegrees: markerType === 'vegvisir' ? 0 : null,
+    };
+    rendererRef.current?.setMarkerPlacementPreview(preview);
+  }, []);
+
   const worldPointFromScreen = useCallback((screenPoint: ScreenPoint): WorldPoint | null => {
     const host = hostRef.current;
     if (host === null || host.clientWidth <= 0 || host.clientHeight <= 0) {
@@ -223,10 +306,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         pointerWorldRef.current = point;
         onCursorWorldChange(point);
         updateBrushCursor(point);
+        updateMarkerPlacementPreview(point);
       }
       return point;
     },
-    [onCursorWorldChange, updateBrushCursor, worldPointFromScreen],
+    [onCursorWorldChange, updateBrushCursor, updateMarkerPlacementPreview, worldPointFromScreen],
   );
 
   useEffect(() => {
@@ -298,10 +382,14 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     pathDrawingStateRef.current = null;
     pathEditStateRef.current = null;
     markerDragStateRef.current = null;
+    markerPlacementStateRef.current = null;
+    activePointerGestureRef.current = null;
+    postPlacementMarkerSelectRef.current = false;
     rendererRef.current?.setTerrainPreview(null);
     rendererRef.current?.setPathPreview(null);
     rendererRef.current?.setPathEditPreview(null);
     rendererRef.current?.setMarkerEditPreview(null);
+    rendererRef.current?.setMarkerPlacementPreview(null);
   }, [mapId]);
 
   useEffect(() => {
@@ -317,11 +405,25 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   useEffect(() => {
     toolRef.current = tool;
     pathGeometryTypeRef.current = pathGeometryType;
-    activeMarkerTypeRef.current = activeMarkerType;
+    armedMarkerTypeRef.current = armedMarkerType;
+    if (tool !== previousToolRef.current) {
+      pathCreationArmedRef.current = tool === 'path';
+      previousToolRef.current = tool;
+    }
+    if (tool !== 'select') {
+      postPlacementMarkerSelectRef.current = false;
+    }
+    if (tool !== 'path') {
+      pathCreationArmedRef.current = false;
+    }
+    if (tool !== 'marker' || armedMarkerType === null) {
+      markerPlacementStateRef.current = null;
+    }
     biomeRef.current = biome;
     brushWidthRef.current = brushWidth;
     updateBrushCursor(pointerWorldRef.current);
-  }, [activeMarkerType, biome, brushWidth, pathGeometryType, tool, updateBrushCursor]);
+    updateMarkerPlacementPreview(pointerWorldRef.current);
+  }, [armedMarkerType, biome, brushWidth, pathGeometryType, tool, updateBrushCursor, updateMarkerPlacementPreview]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -347,6 +449,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       renderer.setSelectedPath(selectedPathIdRef.current);
       renderer.setSelectedMarker(selectedMarkerIdRef.current);
       renderer.setMarkerEditPreview(markerPreviewRef.current);
+      updateMarkerPlacementPreview(pointerWorldRef.current);
       if (terrainHydratedRef.current) {
         renderer.requestInitialTerrainRedraw();
       }
@@ -361,14 +464,40 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       }
       renderer.destroy();
     };
-  }, []);
+  }, [updateMarkerPlacementPreview]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.code === 'Space' && !isTypingTarget(event.target)) {
-        spacePressedRef.current = true;
+        spaceHeldRef.current = true;
+        const activeGesture = activePointerGestureRef.current;
+        if (
+          activeGesture?.kind === 'biome-draw' ||
+          activeGesture?.kind === 'erase' ||
+          activeGesture?.kind === 'path-draw' ||
+          activeGesture?.kind === 'marker-place'
+        ) {
+          // A late Space press means the user intended to navigate. Never
+          // persist the partial draw as a long accidental gesture.
+          cancelActivePointerGesture();
+        }
         event.preventDefault();
         return;
+      }
+      if (event.key === 'Escape' && !isTypingTarget(event.target)) {
+        if (armedMarkerTypeRef.current !== null) {
+          event.preventDefault();
+          clearMarkerPlacement();
+          return;
+        }
+        if (selectedMarkerIdRef.current !== null) {
+          event.preventDefault();
+          postPlacementMarkerSelectRef.current = false;
+          selectedMarkerIdRef.current = null;
+          rendererRef.current?.setSelectedMarker(null);
+          onMarkerSelectionChange(null);
+          return;
+        }
       }
       if (
         (event.key === 'Delete' || event.key === 'Backspace') &&
@@ -393,31 +522,30 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     };
     const onKeyUp = (event: KeyboardEvent) => {
       if (event.code === 'Space') {
-        spacePressedRef.current = false;
+        spaceHeldRef.current = false;
       }
     };
     const onWindowBlur = () => {
-      spacePressedRef.current = false;
-      panStateRef.current = null;
-      drawingStateRef.current = null;
-      pathDrawingStateRef.current = null;
-      pathEditStateRef.current = null;
-      markerDragStateRef.current = null;
-      rendererRef.current?.setTerrainPreview(null);
-      rendererRef.current?.setPathPreview(null);
-      rendererRef.current?.setPathEditPreview(null);
-      rendererRef.current?.setMarkerEditPreview(null);
+      spaceHeldRef.current = false;
+      cancelActivePointerGesture();
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        onWindowBlur();
+      }
     };
 
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onWindowBlur);
+    document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onWindowBlur);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [onMarkerDelete, onMarkerSelectionChange, onPathDelete, onPathSelectionChange]);
+  }, [cancelActivePointerGesture, clearMarkerPlacement, onMarkerDelete, onMarkerSelectionChange, onPathDelete, onPathSelectionChange]);
 
   useImperativeHandle(
     ref,
@@ -440,8 +568,9 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
           onMarkerDelete(selected.id);
         }
       },
+      cancelTransientInteraction,
     }),
-    [commitCamera, onMarkerDelete, onMarkerSelectionChange, onPathDelete, onPathSelectionChange],
+    [cancelTransientInteraction, commitCamera, onMarkerDelete, onMarkerSelectionChange, onPathDelete, onPathSelectionChange],
   );
 
   const screenPointFromPointer = (event: PositionedEvent): ScreenPoint => {
@@ -538,12 +667,20 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     }
     const screenPoint = screenPointFromPointer(event);
     const worldPoint = reportPointerWorld(screenPoint);
-    const temporaryPan = event.button === 1 || (event.button === 0 && spacePressedRef.current);
-    const selectedPan = event.button === 0 && tool === 'pan';
+    const currentTool = toolRef.current;
+    // Navigation always wins before any tool can capture a drawing gesture.
+    const initialGesture = initialPointerGesture({
+      button: event.button,
+      spaceHeld: spaceHeldRef.current,
+      tool: currentTool,
+      markerPlacementArmed: armedMarkerTypeRef.current !== null,
+      pathCreationArmed: pathCreationArmedRef.current,
+    });
 
-    if (temporaryPan || selectedPan) {
+    if (initialGesture === 'pan') {
       event.preventDefault();
       panStateRef.current = { pointerId: event.pointerId, screenPoint };
+      activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'pan' };
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
@@ -552,28 +689,52 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       return;
     }
 
-    if (tool === 'marker') {
+    const postPlacementSelect = currentTool === 'select' && postPlacementMarkerSelectRef.current;
+
+    if (currentTool === 'marker') {
       event.preventDefault();
-      const id = crypto.randomUUID();
-      selectMarker(id);
-      onMarkerComplete({
-        id,
-        markerType: activeMarkerTypeRef.current,
-        x: worldPoint[0],
-        y: worldPoint[1],
-        directionDegrees: activeMarkerTypeRef.current === 'vegvisir' ? 0 : null,
-      });
+      const hitMarker = hitTestMarker(markersRef.current, worldPoint, cameraRef.current.zoom);
+      if (hitMarker !== null) {
+        // In Marker mode a normal click is marker interaction, never a new
+        // placement and never an accidental deselection.
+        selectMarker(hitMarker.id);
+        return;
+      }
+      const markerType = armedMarkerTypeRef.current;
+      if (markerType === null) {
+        selectMarker(null);
+        onToolChange('pan');
+        return;
+      }
+      markerPlacementStateRef.current = {
+        pointerId: event.pointerId,
+        screenPoint,
+        point: worldPoint,
+        markerType,
+        moved: false,
+      };
+      activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'marker-place' };
+      event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
 
-    if (tool === 'select') {
+    if (currentTool === 'select') {
       const hitMarker = hitTestMarker(markersRef.current, worldPoint, cameraRef.current.zoom);
       if (hitMarker !== null) {
         event.preventDefault();
+        const wasSelected = selectedMarkerIdRef.current === hitMarker.id;
         selectMarker(hitMarker.id);
         if (hitMarker.objectVersion > 0 && !pendingMarkerIdsRef.current.has(hitMarker.id)) {
-          markerDragStateRef.current = { pointerId: event.pointerId, marker: hitMarker, moved: false };
+          markerDragStateRef.current = {
+            pointerId: event.pointerId,
+            marker: hitMarker,
+            moved: false,
+            wasSelected,
+          };
+          activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'marker-drag' };
           event.currentTarget.setPointerCapture(event.pointerId);
+        } else if (wasSelected && !postPlacementMarkerSelectRef.current) {
+          selectMarker(null);
         }
         return;
       }
@@ -582,7 +743,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       selectMarker(null);
     }
 
-    if (tool === 'path' || tool === 'select') {
+    if (currentTool === 'path' || currentTool === 'select') {
       const currentSelected = selectedPath();
       const controlIndex =
         currentSelected !== null &&
@@ -597,6 +758,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
           path: currentSelected!,
           pointIndex: controlIndex,
         };
+        activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'path-edit' };
         event.currentTarget.setPointerCapture(event.pointerId);
         return;
       }
@@ -609,9 +771,17 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         selectPath(hit.id);
         return;
       }
-      if (tool === 'select') {
+      if (currentTool === 'select' || !pathCreationArmedRef.current) {
         event.preventDefault();
         selectPath(null);
+        if (currentTool === 'path') {
+          toolRef.current = 'pan';
+          onToolChange('pan');
+        } else if (postPlacementSelect) {
+          postPlacementMarkerSelectRef.current = false;
+          toolRef.current = 'pan';
+          onToolChange('pan');
+        }
         return;
       }
 
@@ -625,25 +795,30 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         latestPoint: worldPoint,
       };
       pathDrawingStateRef.current = drawing;
+      activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'path-draw' };
       event.currentTarget.setPointerCapture(event.pointerId);
       previewPathDrawing(drawing);
       return;
     }
 
-    if (!isBrushTool(tool)) {
+    if (!isBrushTool(currentTool)) {
       return;
     }
 
     event.preventDefault();
     const drawing: DrawingState = {
       pointerId: event.pointerId,
-      mode: tool === 'eraser' ? 'erase' : 'paint',
-      biome: tool === 'eraser' ? null : biome,
-      brushWidth,
+      mode: currentTool === 'eraser' ? 'erase' : 'paint',
+      biome: currentTool === 'eraser' ? null : biomeRef.current,
+      brushWidth: brushWidthRef.current,
       points: [worldPoint],
       latestPoint: worldPoint,
     };
     drawingStateRef.current = drawing;
+    activePointerGestureRef.current = {
+      pointerId: event.pointerId,
+      kind: drawing.mode === 'erase' ? 'erase' : 'biome-draw',
+    };
     event.currentTarget.setPointerCapture(event.pointerId);
     previewDrawing(drawing);
   };
@@ -653,9 +828,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       return;
     }
     const screenPoint = screenPointFromPointer(event);
+    const activeGesture = activePointerGestureRef.current;
     const panState = panStateRef.current;
 
-    if (panState?.pointerId === event.pointerId) {
+    if (activeGesture?.kind === 'pan' && panState?.pointerId === event.pointerId) {
       event.preventDefault();
       commitCamera(
         panCameraByScreenDelta(cameraRef.current, {
@@ -668,7 +844,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
 
     const worldPoint = reportPointerWorld(screenPoint);
     const drawing = drawingStateRef.current;
-    if (drawing?.pointerId === event.pointerId && worldPoint !== null) {
+    if (
+      (activeGesture?.kind === 'biome-draw' || activeGesture?.kind === 'erase') &&
+      drawing?.pointerId === event.pointerId &&
+      worldPoint !== null
+    ) {
       event.preventDefault();
       drawing.latestPoint = worldPoint;
       if (shouldSamplePoint(drawing.points, worldPoint, strokeSampleDistance(drawing.brushWidth))) {
@@ -678,7 +858,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     }
 
     const pathDrawing = pathDrawingStateRef.current;
-    if (pathDrawing?.pointerId === event.pointerId && worldPoint !== null) {
+    if (activeGesture?.kind === 'path-draw' && pathDrawing?.pointerId === event.pointerId && worldPoint !== null) {
       event.preventDefault();
       pathDrawing.latestPoint = worldPoint;
       if (
@@ -691,7 +871,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     }
 
     const pathEdit = pathEditStateRef.current;
-    if (pathEdit?.pointerId === event.pointerId && worldPoint !== null) {
+    if (activeGesture?.kind === 'path-edit' && pathEdit?.pointerId === event.pointerId && worldPoint !== null) {
       event.preventDefault();
       const draft = replacePathControlPoint(pathEdit.path, pathEdit.pointIndex, worldPoint);
       pathEdit.path = draft;
@@ -699,7 +879,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     }
 
     const markerDrag = markerDragStateRef.current;
-    if (markerDrag?.pointerId === event.pointerId && worldPoint !== null) {
+    if (activeGesture?.kind === 'marker-drag' && markerDrag?.pointerId === event.pointerId && worldPoint !== null) {
       event.preventDefault();
       const draft = movedMarker(markerDrag.marker, worldPoint);
       if (draft.x !== markerDrag.marker.x || draft.y !== markerDrag.marker.y) {
@@ -707,6 +887,16 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       }
       markerDrag.marker = draft;
       rendererRef.current?.setMarkerEditPreview(draft);
+    }
+
+    const markerPlacement = markerPlacementStateRef.current;
+    if (activeGesture?.kind === 'marker-place' && markerPlacement?.pointerId === event.pointerId && worldPoint !== null) {
+      const screenDistance = Math.hypot(
+        screenPoint.x - markerPlacement.screenPoint.x,
+        screenPoint.y - markerPlacement.screenPoint.y,
+      );
+      markerPlacement.moved ||= screenDistance > 4;
+      markerPlacement.point = worldPoint;
     }
   };
 
@@ -754,7 +944,17 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     }
 
     const id = crypto.randomUUID();
-    selectPath(id);
+    pathCreationArmedRef.current = false;
+    if (drawing.geometryType === 'freehand') {
+      // Freehand has no useful control-point editing, so it exits directly.
+      selectPath(null);
+      toolRef.current = 'pan';
+      onToolChange('pan');
+    } else {
+      // Straight and curve remain selected for immediate endpoint/control
+      // editing, but creation itself is disarmed.
+      selectPath(id);
+    }
     onPathComplete({
       id,
       geometryType: drawing.geometryType,
@@ -782,6 +982,9 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     markerDragStateRef.current = null;
     if (!dragging.moved) {
       rendererRef.current?.setMarkerEditPreview(null);
+      if (dragging.wasSelected && !postPlacementMarkerSelectRef.current) {
+        selectMarker(null);
+      }
       return;
     }
     // Preserve the direct display until the versioned optimistic update lands.
@@ -789,8 +992,46 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     onMarkerUpdate(dragging.marker);
   };
 
+  const finishMarkerPlacement = (event: PointerEvent<HTMLDivElement>) => {
+    const placement = markerPlacementStateRef.current;
+    if (placement?.pointerId !== event.pointerId) {
+      return;
+    }
+    markerPlacementStateRef.current = null;
+    if (placement.moved) {
+      return;
+    }
+    const finalPoint = reportPointerWorld(screenPointFromPointer(event)) ?? placement.point;
+    // Placement is single-shot. Disarm before issuing the optimistic create
+    // so a later click cannot produce a second marker while this save is pending.
+    clearMarkerPlacement();
+    const id = crypto.randomUUID();
+    // Keep the newly placed marker selected so its caption/size/direction can
+    // be edited immediately. Select is entered automatically; a later
+    // empty-map click exits to Pan.
+    selectMarker(id);
+    postPlacementMarkerSelectRef.current = true;
+    toolRef.current = 'select';
+    onToolChange('select');
+    onMarkerComplete({
+      id,
+      markerType: placement.markerType,
+      x: finalPoint[0],
+      y: finalPoint[1],
+      directionDegrees: placement.markerType === 'vegvisir' ? 0 : null,
+    });
+  };
+
   const endPointerInteraction = (event: PointerEvent<HTMLDivElement>, cancelled: boolean) => {
-    if (drawingStateRef.current?.pointerId === event.pointerId) {
+    const activeGesture = activePointerGestureRef.current;
+    if (activeGesture?.pointerId !== event.pointerId) {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      return;
+    }
+
+    if ((activeGesture.kind === 'biome-draw' || activeGesture.kind === 'erase') && drawingStateRef.current?.pointerId === event.pointerId) {
       if (cancelled) {
         drawingStateRef.current = null;
         rendererRef.current?.setTerrainPreview(null);
@@ -799,7 +1040,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       }
     }
 
-    if (pathDrawingStateRef.current?.pointerId === event.pointerId) {
+    if (activeGesture.kind === 'path-draw' && pathDrawingStateRef.current?.pointerId === event.pointerId) {
       if (cancelled) {
         pathDrawingStateRef.current = null;
         rendererRef.current?.setPathPreview(null);
@@ -808,7 +1049,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       }
     }
 
-    if (pathEditStateRef.current?.pointerId === event.pointerId) {
+    if (activeGesture.kind === 'path-edit' && pathEditStateRef.current?.pointerId === event.pointerId) {
       if (cancelled) {
         pathEditStateRef.current = null;
         rendererRef.current?.setPathEditPreview(null);
@@ -817,7 +1058,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       }
     }
 
-    if (markerDragStateRef.current?.pointerId === event.pointerId) {
+    if (activeGesture.kind === 'marker-drag' && markerDragStateRef.current?.pointerId === event.pointerId) {
       if (cancelled) {
         markerDragStateRef.current = null;
         rendererRef.current?.setMarkerEditPreview(null);
@@ -826,9 +1067,19 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       }
     }
 
-    if (panStateRef.current?.pointerId === event.pointerId) {
+    if (activeGesture.kind === 'marker-place' && markerPlacementStateRef.current?.pointerId === event.pointerId) {
+      if (cancelled) {
+        markerPlacementStateRef.current = null;
+        rendererRef.current?.setMarkerPlacementPreview(null);
+      } else {
+        finishMarkerPlacement(event);
+      }
+    }
+
+    if (activeGesture.kind === 'pan' && panStateRef.current?.pointerId === event.pointerId) {
       panStateRef.current = null;
     }
+    activePointerGestureRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -870,11 +1121,15 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       className={`map-canvas-host map-canvas-host--${tool}`}
       onContextMenu={(event) => event.preventDefault()}
       onPointerCancel={(event) => endPointerInteraction(event, true)}
+      onLostPointerCapture={(event) => endPointerInteraction(event, true)}
       onPointerDown={handlePointerDown}
       onPointerEnter={(event) => reportPointerWorld(screenPointFromPointer(event))}
       onPointerLeave={() => {
         if (drawingStateRef.current === null && pathDrawingStateRef.current === null) {
           updateBrushCursor(null);
+        }
+        if (markerDragStateRef.current === null && markerPlacementStateRef.current === null) {
+          updateMarkerPlacementPreview(null);
         }
       }}
       onPointerMove={handlePointerMove}

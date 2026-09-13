@@ -55,6 +55,41 @@ button {
   cursor: crosshair;
 }
 
+.map-centre-reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.map-centre-reticle::before,
+.map-centre-reticle::after {
+  position: absolute;
+  display: block;
+  background: #9a3f3c;
+  border-radius: 1px;
+  box-shadow: 0 0 1px rgb(255 248 235 / 85%);
+  content: '';
+}
+
+.map-centre-reticle::before {
+  top: 9px;
+  left: 1px;
+  width: 18px;
+  height: 2px;
+}
+
+.map-centre-reticle::after {
+  top: 1px;
+  left: 9px;
+  width: 2px;
+  height: 18px;
+}
+
 .map-canvas {
   display: block;
   width: 100%;
@@ -104,6 +139,100 @@ button {
 .map-controls button:focus-visible {
   outline: 2px solid #657157;
   outline-offset: 1px;
+}
+
+.coordinate-navigator {
+  position: relative;
+}
+
+.coordinate-navigator > button {
+  padding: 6px 9px;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+}
+
+.coordinate-navigator > button:hover {
+  background: rgb(82 87 74 / 10%);
+}
+
+.coordinate-navigator__panel {
+  position: absolute;
+  top: 36px;
+  right: 0;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 190px;
+  padding: 10px;
+  color: #454940;
+  background: rgb(244 242 235 / 94%);
+  border: 1px solid rgb(80 84 73 / 18%);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgb(42 45 39 / 12%);
+  backdrop-filter: blur(6px);
+}
+
+.coordinate-navigator__panel strong,
+.coordinate-navigator__hint,
+.coordinate-navigator__error,
+.coordinate-navigator__panel footer {
+  grid-column: 1 / -1;
+}
+
+.coordinate-navigator__panel strong {
+  font-size: 13px;
+}
+
+.coordinate-navigator__hint {
+  margin-top: -5px;
+  color: #6b6e65;
+  font-size: 11px;
+}
+
+.coordinate-navigator__panel label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.coordinate-navigator__panel input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 6px;
+  color: inherit;
+  font: inherit;
+  background: rgb(255 255 255 / 58%);
+  border: 1px solid rgb(80 84 73 / 24%);
+  border-radius: 4px;
+}
+
+.coordinate-navigator__panel input:focus-visible {
+  outline: 2px solid #657157;
+  outline-offset: 1px;
+}
+
+.coordinate-navigator__error {
+  color: #87443a;
+  font-size: 11px;
+}
+
+.coordinate-navigator__panel footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.coordinate-navigator__panel footer button {
+  padding: 5px 7px;
+  color: inherit;
+  cursor: pointer;
+  background: rgb(102 123 82 / 12%);
+  border: 0;
+  border-radius: 4px;
 }
 
 .map-menu {

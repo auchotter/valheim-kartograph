@@ -702,7 +702,9 @@ export class PixiMapRenderer {
     const minY = cameraY - height / (2 * zoom);
     const maxY = cameraY + height / (2 * zoom);
     const spacing = chooseGridSpacing(zoom);
-    const lineWidth = 0.65 / zoom;
+    // Keep the stroke in screen-pixel units while the grid geometry remains
+    // world-space. Major and origin lines retain a modest visual hierarchy.
+    const lineWidth = 0.85 / zoom;
     const firstX = Math.ceil(minX / spacing) * spacing;
     const firstY = Math.ceil(minY / spacing) * spacing;
 
@@ -941,8 +943,8 @@ function drawGridLine(
     .lineTo(toX, toY)
     .stroke({
       color: isOrigin ? 0x667060 : 0x788070,
-      alpha: isOrigin ? 0.24 : isMajor ? 0.17 : 0.11,
-      width: isOrigin ? width * 1.25 : width,
+      alpha: isOrigin ? 0.32 : isMajor ? 0.24 : 0.16,
+      width: isOrigin ? width * 1.75 : isMajor ? width * 1.25 : width,
     });
 }
 

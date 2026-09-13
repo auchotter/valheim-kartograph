@@ -7,6 +7,8 @@ import { MapToolbar } from './MapToolbar';
 import { MapCanvas, type MapCanvasHandle } from './map/MapCanvas';
 import { useMapSession } from '../state/useMapSession';
 import type { MapTool } from '../state/mapTool';
+import { mapToValheimCoordinates } from '../lib/valheimCoordinates';
+import { CoordinateNavigator } from './CoordinateNavigator';
 
 const DEFAULT_BIOME: Biome = 'meadows';
 const DEFAULT_BRUSH_WIDTH = 120;
@@ -68,6 +70,14 @@ export function MapWorkspace() {
   );
 
   const selectedMarker = mapSession.markers.find((marker) => marker.id === selectedMarkerId) ?? null;
+  const cursorValheim = cursorWorld === null ? null : mapToValheimCoordinates(cursorWorld[0], cursorWorld[1]);
+
+  const goToCoordinate = useCallback(
+    (coordinate: { x: number; y: number }) => {
+      mapSession.setCamera({ ...mapSession.camera, cameraX: coordinate.x, cameraY: coordinate.y });
+    },
+    [mapSession.camera, mapSession.setCamera],
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -138,6 +148,8 @@ export function MapWorkspace() {
         onMarkerSelectionChange={selectMarker}
       />
 
+      {gridVisible && <div className="map-centre-reticle" aria-hidden="true" />}
+
       <MapMenu
         maps={mapSession.maps}
         currentMapId={mapSession.currentMap?.id ?? null}
@@ -174,6 +186,7 @@ export function MapWorkspace() {
         >
           Paths
         </button>
+        <CoordinateNavigator onGo={goToCoordinate} />
         {mapSession.currentMap !== null && (
           <span className="map-controls__map-name">Map: {mapSession.currentMap.name}</span>
         )}
@@ -217,10 +230,8 @@ export function MapWorkspace() {
 
       <output className="map-debug" aria-live="polite">
         <div>Zoom: {(mapSession.camera.zoom * 100).toFixed(0)}%</div>
-        <div>Cursor world X: {formatCoordinate(cursorWorld?.[0])}</div>
-        <div>Cursor world Y: {formatCoordinate(cursorWorld?.[1])}</div>
-        <div>Strokes: {mapSession.strokes.length}</div>
-        <div>Markers: {mapSession.markers.length}</div>
+        <div>Cursor Valheim X: {formatCoordinate(cursorValheim?.x)}</div>
+        <div>Cursor Valheim Z: {formatCoordinate(cursorValheim?.z)}</div>
         {mapSession.collaborationStatus !== 'connected' && (
           <div>Sync: {formatCollaborationStatus(mapSession.collaborationStatus)}</div>
         )}

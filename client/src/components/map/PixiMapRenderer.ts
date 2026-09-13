@@ -67,6 +67,7 @@ export class PixiMapRenderer {
   private host: HTMLElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private terrainRenderFrame: number | null = null;
+  private stageRenderFrame: number | null = null;
   private hydrationRedraw: 'unrequested' | 'pending' | 'done' = 'unrequested';
   private terrainTexture: RenderTexture | null = null;
   private classificationTexture: RenderTexture | null = null;
@@ -133,6 +134,7 @@ export class PixiMapRenderer {
       autoDensity: true,
       resolution: window.devicePixelRatio || 1,
       preference: 'webgl',
+      autoStart: false,
     });
     this.initialized = true;
 
@@ -185,6 +187,7 @@ export class PixiMapRenderer {
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
     this.resize();
+    this.requestStageRender();
   }
 
   setCamera(camera: Camera): void {
@@ -208,6 +211,7 @@ export class PixiMapRenderer {
       this.updateMarkerVisualScales();
       this.rebuildMarkerSelection();
     }
+    this.requestStageRender();
   }
 
   setTerrainStrokes(strokes: readonly BiomeStroke[]): void {
@@ -215,6 +219,7 @@ export class PixiMapRenderer {
     if (this.initialized) {
       this.rebuildTerrain();
       this.scheduleTerrainRender();
+      this.requestStageRender();
     }
   }
 
@@ -233,6 +238,7 @@ export class PixiMapRenderer {
     if (this.initialized) {
       this.rebuildPreview();
       this.scheduleTerrainRender();
+      this.requestStageRender();
     }
   }
 
@@ -240,6 +246,7 @@ export class PixiMapRenderer {
     this.pathObjects = paths;
     if (this.initialized) {
       this.rebuildPaths();
+      this.requestStageRender();
     }
   }
 
@@ -249,6 +256,7 @@ export class PixiMapRenderer {
     if (visible && this.initialized) {
       this.rebuildPathSelection();
     }
+    this.requestStageRender();
   }
 
   setSelectedPath(pathId: string | null): void {
@@ -256,6 +264,7 @@ export class PixiMapRenderer {
     if (this.initialized) {
       this.rebuildPathSelection();
     }
+    this.requestStageRender();
   }
 
   setPathEditPreview(path: Path | null): void {
@@ -264,6 +273,7 @@ export class PixiMapRenderer {
       this.rebuildPathEditPreview();
       this.rebuildPathSelection();
     }
+    this.requestStageRender();
   }
 
   setPathPreview(preview: PathPreview | null): void {
@@ -271,6 +281,7 @@ export class PixiMapRenderer {
     if (this.initialized) {
       this.rebuildPathPreview();
     }
+    this.requestStageRender();
   }
 
   setMarkers(markers: readonly Marker[]): void {
@@ -278,6 +289,7 @@ export class PixiMapRenderer {
     if (this.initialized) {
       this.rebuildMarkers();
     }
+    this.requestStageRender();
   }
 
   setSelectedMarker(markerId: string | null): void {
@@ -285,6 +297,7 @@ export class PixiMapRenderer {
     if (this.initialized) {
       this.rebuildMarkerSelection();
     }
+    this.requestStageRender();
   }
 
   setMarkerEditPreview(marker: Marker | null): void {
@@ -293,6 +306,7 @@ export class PixiMapRenderer {
       this.rebuildMarkerEditPreview();
       this.rebuildMarkerSelection();
     }
+    this.requestStageRender();
   }
 
   setBrushCursor(cursor: BrushCursor | null): void {
@@ -300,6 +314,7 @@ export class PixiMapRenderer {
     if (this.initialized) {
       this.redrawBrushCursor();
     }
+    this.requestStageRender();
   }
 
   setGridVisible(visible: boolean): void {
@@ -308,6 +323,7 @@ export class PixiMapRenderer {
     if (this.initialized) {
       this.rebuildGrid();
     }
+    this.requestStageRender();
   }
 
   destroy(): void {
@@ -321,6 +337,10 @@ export class PixiMapRenderer {
     if (this.terrainRenderFrame !== null) {
       cancelAnimationFrame(this.terrainRenderFrame);
       this.terrainRenderFrame = null;
+    }
+    if (this.stageRenderFrame !== null) {
+      cancelAnimationFrame(this.stageRenderFrame);
+      this.stageRenderFrame = null;
     }
     this.terrainTexture?.destroy(true);
     this.terrainTexture = null;
@@ -354,6 +374,7 @@ export class PixiMapRenderer {
     this.classificationDebugBackdrop.clear().rect(0, 0, width, height).fill({ color: 0x000000 });
     this.applyCameraTransform();
     this.renderTerrainNow();
+    this.requestStageRender();
   }
 
   private ensureRenderTextures(width: number, height: number): void {
@@ -417,6 +438,7 @@ export class PixiMapRenderer {
     this.rebuildGrid();
     this.redrawBrushCursor();
     this.scheduleTerrainRender();
+    this.requestStageRender();
   }
 
   private rebuildTerrain(): void {
@@ -606,7 +628,21 @@ export class PixiMapRenderer {
         color: this.cursor.color,
         alpha: 0.72,
         width: Math.max(0.75 / zoom, 0.2),
-      });
+    });
+  }
+
+  /** Coalesces visible-stage presentation without keeping a permanent RAF loop. */
+  private requestStageRender(): void {
+    if (this.application === null || this.destroyed || this.stageRenderFrame !== null) {
+      return;
+    }
+
+    this.stageRenderFrame = requestAnimationFrame(() => {
+      this.stageRenderFrame = null;
+      if (this.application !== null && !this.destroyed) {
+        this.application.render();
+      }
+    });
   }
 
   private scheduleTerrainRender(): void {
@@ -652,6 +688,7 @@ export class PixiMapRenderer {
       clear: true,
       clearColor: [0, 0, 0, 0],
     });
+    this.requestStageRender();
   }
 
   private rebuildGrid(): void {

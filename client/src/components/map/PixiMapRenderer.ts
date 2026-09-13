@@ -6,14 +6,12 @@ import {
   RenderTexture,
   Sprite,
   Text,
-  TilingSprite,
   UniformGroup,
 } from 'pixi.js';
 import type { Biome, BiomeStroke, Marker, Path, PathGeometryType, WorldPoint } from '../../../../shared/domain';
 import { MapLayer } from '../../../../shared/domain';
 import { biomeTexture } from '../../lib/biomeTextures';
 import { chooseGridSpacing } from '../../lib/grid';
-import { strokeBoundingBox } from '../../lib/strokeGeometry';
 import { pathPolyline } from '../../lib/pathGeometry';
 import { drawMarkerIcon, MARKER_ICON_VIEWBOX } from '../../lib/markerIcons';
 import {
@@ -834,7 +832,7 @@ function drawDottedPath(
   }
 }
 
-function createStrokeRenderable(stroke: TerrainStroke): Container | Graphics {
+function createStrokeRenderable(stroke: TerrainStroke): Graphics {
   if (stroke.mode === 'erase') {
     const eraser = new Graphics();
     drawStrokeShape(eraser, stroke.points, stroke.brushWidth, 0xffffff);
@@ -847,24 +845,32 @@ function createStrokeRenderable(stroke: TerrainStroke): Container | Graphics {
     throw new Error('Paint strokes require a biome.');
   }
 
-  const bounds = strokeBoundingBox(stroke.points, stroke.brushWidth);
-  const width = bounds.maxX - bounds.minX;
-  const height = bounds.maxY - bounds.minY;
-  const container = new Container();
-  const pattern = new TilingSprite({
-    texture: biomeTexture(biome),
-    width,
-    height,
-    // Local coordinate + tile position equals world coordinate, so all strokes
-    // sample one shared, immutable biome pattern instead of restarting per path.
-    tilePosition: { x: bounds.minX, y: bounds.minY },
+  // Draw the procedural texture directly into the terrain render target. Using
+  // a textured Graphics stroke avoids Pixi's Graphics mask pipeline, which
+  // otherwise allocates stroke-bounds-sized intermediate render textures.
+  // The stroke points remain absolute world coordinates and textureSpace:
+  // 'global' keeps the cached biome pattern anchored to those coordinates.
+  const graphic = new Graphics();
+  const texture = biomeTexture(biome);
+  if (stroke.points.length === 1) {
+    graphic
+      .circle(stroke.points[0][0], stroke.points[0][1], stroke.brushWidth / 2)
+      .fill({ texture, textureSpace: 'global' });
+    return graphic;
+  }
+
+  graphic.moveTo(stroke.points[0][0], stroke.points[0][1]);
+  for (let index = 1; index < stroke.points.length; index += 1) {
+    graphic.lineTo(stroke.points[index][0], stroke.points[index][1]);
+  }
+  graphic.stroke({
+    texture,
+    textureSpace: 'global',
+    width: stroke.brushWidth,
+    cap: 'round',
+    join: 'round',
   });
-  pattern.position.set(bounds.minX, bounds.minY);
-  const mask = new Graphics();
-  drawStrokeShape(mask, stroke.points, stroke.brushWidth, 0xffffff);
-  pattern.mask = mask;
-  container.addChild(pattern, mask);
-  return container;
+  return graphic;
 }
 
 /**

@@ -218,6 +218,9 @@ export function MapWorkspace() {
         <div>Cursor world Y: {formatCoordinate(cursorWorld?.[1])}</div>
         <div>Strokes: {mapSession.strokes.length}</div>
         <div>Markers: {mapSession.markers.length}</div>
+        {mapSession.collaborationStatus !== 'connected' && (
+          <div>Sync: {formatCollaborationStatus(mapSession.collaborationStatus)}</div>
+        )}
         {mapSession.pendingStrokeCount + mapSession.pendingPathMutationCount + mapSession.pendingMarkerMutationCount > 0 && <div>Saving…</div>}
         {mapSession.saveError !== null && <div className="map-debug__error">Save failed: {mapSession.saveError}</div>}
       </output>
@@ -251,4 +254,8 @@ function isTypingTarget(target: EventTarget | null): boolean {
     target instanceof HTMLTextAreaElement ||
     (target instanceof HTMLElement && target.isContentEditable)
   );
+}
+
+function formatCollaborationStatus(status: string): string {
+  return status === 'reconnecting' ? 'Reconnecting…' : status[0].toUpperCase() + status.slice(1);
 }

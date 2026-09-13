@@ -19,6 +19,7 @@
     "verify:geometry": "tsx scripts/verify-geometry.ts",
     "verify:paths": "tsx scripts/verify-paths.ts",
     "verify:markers": "tsx scripts/verify-markers.ts",
+    "verify:realtime": "tsx scripts/verify-realtime.ts",
     "verify:terrain-memory": "tsx scripts/verify-terrain-memory.ts",
     "verify:schema": "tsx scripts/verify-schema.ts",
     "verify:api": "tsx scripts/verify-api.ts",

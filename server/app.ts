@@ -5,7 +5,10 @@ import type Database from 'better-sqlite3';
 import { ZodError } from 'zod';
 import { ApiError } from './api/errors.js';
 import { registerMapRoutes } from './api/mapsRoutes.js';
+import { registerMapWebsocketRoutes } from './api/mapWebsocketRoutes.js';
 import { MapRepository } from './repositories/mapRepository.js';
+import { MapHub } from './realtime/mapHub.js';
+import { acceptedMutationEvent } from './realtime/mapEvents.js';
 import { MapService } from './services/mapService.js';
 
 interface CreateAppOptions {
@@ -42,7 +45,17 @@ export async function createApp({ database, staticRoot }: CreateAppOptions): Pro
     };
   });
 
-  await registerMapRoutes(app, new MapService(new MapRepository(database)));
+  const service = new MapService(new MapRepository(database));
+  const hub = new MapHub();
+  service.onAcceptedObjectMutation((result) => {
+    hub.broadcast(acceptedMutationEvent(result));
+  });
+  service.onMapDeleted((mapId) => {
+    hub.closeMap(mapId);
+  });
+
+  await registerMapRoutes(app, service);
+  await registerMapWebsocketRoutes(app, service, hub);
 
   if (staticRoot !== undefined) {
     await app.register(fastifyStatic, {

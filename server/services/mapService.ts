@@ -25,8 +25,24 @@ export interface ObjectMutationResult {
   idempotent: boolean;
 }
 
+export type AcceptedObjectMutationListener = (result: ObjectMutationResult) => void;
+export type MapDeletedListener = (mapId: string) => void;
+
 export class MapService {
+  private readonly acceptedMutationListeners = new Set<AcceptedObjectMutationListener>();
+  private readonly mapDeletedListeners = new Set<MapDeletedListener>();
+
   constructor(private readonly repository: MapRepository) {}
+
+  onAcceptedObjectMutation(listener: AcceptedObjectMutationListener): () => void {
+    this.acceptedMutationListeners.add(listener);
+    return () => this.acceptedMutationListeners.delete(listener);
+  }
+
+  onMapDeleted(listener: MapDeletedListener): () => void {
+    this.mapDeletedListeners.add(listener);
+    return () => this.mapDeletedListeners.delete(listener);
+  }
 
   listMaps(): MapRecord[] {
     return this.repository.listActiveMaps();
@@ -34,6 +50,10 @@ export class MapService {
 
   getMapState(mapId: string): { map: MapRecord; objects: MapObject[] } {
     return { map: this.requireActiveMap(mapId), objects: this.repository.listObjects(mapId) };
+  }
+
+  getMapRevision(mapId: string): number {
+    return this.requireActiveMap(mapId).revision;
   }
 
   createMap(input: MapNameInput): MapRecord {
@@ -69,6 +89,7 @@ export class MapService {
       this.requireActiveMap(mapId);
       this.repository.softDeleteMap(mapId, timestamp());
     });
+    this.publishMapDeleted(mapId);
   }
 
   duplicateMap(mapId: string, input: DuplicateMapInput): MapRecord {
@@ -105,7 +126,7 @@ export class MapService {
   }
 
   createObject(mapId: string, input: CreateObjectInput): ObjectMutationResult {
-    return this.repository.transaction(() => {
+    const result = this.repository.transaction(() => {
       this.requireActiveMap(mapId);
       const retry = this.findIdempotentResult(mapId, input.actorId, input.clientOperationId);
       if (retry !== null) {
@@ -125,10 +146,12 @@ export class MapService {
       this.repository.insertObject(object);
       return this.acceptMutation(mapId, input.actorId, input.clientOperationId, 'object.create', null, object, null, now);
     });
+    this.publishAcceptedObjectMutation(result);
+    return result;
   }
 
   updateObject(mapId: string, objectId: string, input: UpdateObjectInput): ObjectMutationResult {
-    return this.repository.transaction(() => {
+    const result = this.repository.transaction(() => {
       this.requireActiveMap(mapId);
       const retry = this.findIdempotentResult(mapId, input.actorId, input.clientOperationId);
       if (retry !== null) {
@@ -156,6 +179,8 @@ export class MapService {
         now,
       );
     });
+    this.publishAcceptedObjectMutation(result);
+    return result;
   }
 
   deleteObject(mapId: string, objectId: string, input: LifecycleObjectInput): ObjectMutationResult {
@@ -172,7 +197,7 @@ export class MapService {
     input: LifecycleObjectInput,
     deleting: boolean,
   ): ObjectMutationResult {
-    return this.repository.transaction(() => {
+    const result = this.repository.transaction(() => {
       this.requireActiveMap(mapId);
       const retry = this.findIdempotentResult(mapId, input.actorId, input.clientOperationId);
       if (retry !== null) {
@@ -203,6 +228,31 @@ export class MapService {
         now,
       );
     });
+    this.publishAcceptedObjectMutation(result);
+    return result;
+  }
+
+  private publishAcceptedObjectMutation(result: ObjectMutationResult): void {
+    if (result.idempotent) {
+      return;
+    }
+    for (const listener of this.acceptedMutationListeners) {
+      try {
+        listener(result);
+      } catch {
+        // Subscribers must never turn a committed REST mutation into an error.
+      }
+    }
+  }
+
+  private publishMapDeleted(mapId: string): void {
+    for (const listener of this.mapDeletedListeners) {
+      try {
+        listener(mapId);
+      } catch {
+        // Map deletion is already committed even if a subscriber cleanup fails.
+      }
+    }
   }
 
   private acceptMutation(

@@ -64,6 +64,12 @@ export class PixiMapRenderer {
   private application: Application | null = null;
   private host: HTMLElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  private windowResizeListener: (() => void) | null = null;
+  private resolutionMediaQuery: MediaQueryList | null = null;
+  private resolutionMediaQueryListener: (() => void) | null = null;
+  private viewportWidth = 0;
+  private viewportHeight = 0;
+  private viewportResolution = 0;
   private terrainRenderFrame: number | null = null;
   private stageRenderFrame: number | null = null;
   private hydrationRedraw: 'unrequested' | 'pending' | 'done' = 'unrequested';
@@ -184,6 +190,9 @@ export class PixiMapRenderer {
     this.rebuildMarkers();
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
+    this.windowResizeListener = () => this.resize();
+    window.addEventListener('resize', this.windowResizeListener);
+    this.watchDevicePixelRatio();
     this.resize();
     this.requestStageRender();
   }
@@ -332,6 +341,11 @@ export class PixiMapRenderer {
     this.destroyed = true;
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
+    if (this.windowResizeListener !== null) {
+      window.removeEventListener('resize', this.windowResizeListener);
+      this.windowResizeListener = null;
+    }
+    this.stopWatchingDevicePixelRatio();
     if (this.terrainRenderFrame !== null) {
       cancelAnimationFrame(this.terrainRenderFrame);
       this.terrainRenderFrame = null;
@@ -366,16 +380,61 @@ export class PixiMapRenderer {
 
     const width = Math.max(1, this.host.clientWidth);
     const height = Math.max(1, this.host.clientHeight);
-    this.application.renderer.resize(width, height);
-    this.ensureRenderTextures(width, height);
+    const devicePixelRatio = window.devicePixelRatio;
+    const resolution = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0
+      ? devicePixelRatio
+      : 1;
+    if (
+      width === this.viewportWidth &&
+      height === this.viewportHeight &&
+      resolution === this.viewportResolution
+    ) {
+      return;
+    }
+    this.viewportWidth = width;
+    this.viewportHeight = height;
+    this.viewportResolution = resolution;
+
+    this.application.renderer.resize(width, height, resolution);
+    this.ensureRenderTextures(width, height, resolution);
     this.parchment.clear().rect(0, 0, width, height).fill({ color: PARCHMENT_COLOR });
     this.classificationDebugBackdrop.clear().rect(0, 0, width, height).fill({ color: 0x000000 });
     this.applyCameraTransform();
-    this.renderTerrainNow();
     this.requestStageRender();
   }
 
-  private ensureRenderTextures(width: number, height: number): void {
+  private watchDevicePixelRatio(): void {
+    this.stopWatchingDevicePixelRatio();
+    if (typeof window.matchMedia !== 'function') {
+      return;
+    }
+
+    const resolution = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+      ? window.devicePixelRatio
+      : 1;
+    const mediaQuery = window.matchMedia(`(resolution: ${resolution}dppx)`);
+    const listener = (): void => {
+      if (this.destroyed) {
+        return;
+      }
+      this.stopWatchingDevicePixelRatio();
+      this.resize();
+      this.watchDevicePixelRatio();
+    };
+    mediaQuery.addEventListener('change', listener);
+    this.resolutionMediaQuery = mediaQuery;
+    this.resolutionMediaQueryListener = listener;
+  }
+
+  private stopWatchingDevicePixelRatio(): void {
+    if (this.resolutionMediaQuery !== null && this.resolutionMediaQueryListener !== null) {
+      this.resolutionMediaQuery.removeEventListener('change', this.resolutionMediaQueryListener);
+    }
+    this.resolutionMediaQuery = null;
+    this.resolutionMediaQueryListener = null;
+  }
+
+  private ensureRenderTextures(width: number, height: number, resolution: number): void {
     if (this.application === null) {
       return;
     }
@@ -384,35 +443,37 @@ export class PixiMapRenderer {
       this.terrainTexture = RenderTexture.create({
         width,
         height,
-        resolution: this.application.renderer.resolution,
+        resolution,
+        dynamic: true,
         antialias: true,
       });
       this.terrainSurface.texture = this.terrainTexture;
     } else {
-      this.terrainTexture.resize(width, height, this.application.renderer.resolution);
+      this.terrainTexture.resize(width, height, resolution);
     }
     if (this.classificationTexture === null) {
       this.classificationTexture = RenderTexture.create({
         width,
         height,
-        resolution: this.application.renderer.resolution,
+        resolution,
+        dynamic: true,
         antialias: false,
         scaleMode: 'nearest',
       });
       this.coastlineSurface.texture = this.classificationTexture;
       this.classificationDebugSurface.texture = this.classificationTexture;
     } else {
-      this.classificationTexture.resize(width, height, this.application.renderer.resolution);
+      this.classificationTexture.resize(width, height, resolution);
     }
-    this.terrainSurface.width = width;
-    this.terrainSurface.height = height;
-    this.coastlineSurface.width = width;
-    this.coastlineSurface.height = height;
-    this.classificationDebugSurface.width = width;
-    this.classificationDebugSurface.height = height;
+    // Dynamic render textures update the Sprite view bounds directly. Keep the
+    // viewport wrappers at their canonical scale rather than compensating via
+    // width/height setters (which would encode a texture-size scale).
+    this.terrainSurface.scale.set(1);
+    this.coastlineSurface.scale.set(1);
+    this.classificationDebugSurface.scale.set(1);
     // The filter samples physical classification texels. Express the desired
     // 1.9 CSS-pixel core in physical pixels without scaling the displayed sprite.
-    this.coastlineUniforms.uniforms.uCoastlineThickness = this.application.renderer.resolution * 1.9;
+    this.coastlineUniforms.uniforms.uCoastlineThickness = resolution * 1.9;
   }
 
   private applyCameraTransform(): void {

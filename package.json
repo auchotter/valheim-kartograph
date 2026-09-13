@@ -23,6 +23,7 @@
     "verify:hardening": "tsx scripts/verify-hardening.ts",
     "verify:coordinates": "tsx scripts/verify-valheim-coordinates.ts",
     "verify:terrain-memory": "tsx scripts/verify-terrain-memory.ts",
+    "verify:resize": "tsx scripts/verify-resize.ts",
     "verify:schema": "tsx scripts/verify-schema.ts",
     "verify:api": "tsx scripts/verify-api.ts",
     "start": "node dist/server/index.js"

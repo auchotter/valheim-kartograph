@@ -8,6 +8,7 @@ interface MapToolbarProps {
   brushWidth: number;
   pathGeometryType: PathGeometryType;
   hasSelectedPath: boolean;
+  selectedPathPending: boolean;
   onToolChange: (tool: MapTool) => void;
   onBiomeChange: (biome: Biome) => void;
   onBrushWidthChange: (width: number) => void;
@@ -21,6 +22,7 @@ export function MapToolbar({
   brushWidth,
   pathGeometryType,
   hasSelectedPath,
+  selectedPathPending,
   onToolChange,
   onBiomeChange,
   onBrushWidthChange,
@@ -101,7 +103,7 @@ export function MapToolbar({
       )}
 
       {hasSelectedPath && (
-        <button type="button" className="map-toolbar__delete" onClick={onDeleteSelectedPath}>
+        <button type="button" className="map-toolbar__delete" disabled={selectedPathPending} onClick={onDeleteSelectedPath}>
           Delete path
         </button>
       )}

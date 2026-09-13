@@ -114,6 +114,8 @@ export function MapWorkspace() {
         strokes={mapSession.strokes}
         paths={mapSession.paths}
         markers={mapSession.markers}
+        pendingPathIds={mapSession.pendingPathIds}
+        pendingMarkerIds={mapSession.pendingMarkerIds}
         pathsVisible={pathsVisible}
         pathGeometryType={pathGeometryType}
         activeMarkerType={activeMarkerType}
@@ -183,6 +185,7 @@ export function MapWorkspace() {
         brushWidth={brushWidth}
         pathGeometryType={pathGeometryType}
         hasSelectedPath={selectedPathId !== null}
+        selectedPathPending={selectedPathId !== null && mapSession.pendingPathIds.has(selectedPathId)}
         onToolChange={setTool}
         onBiomeChange={setBiome}
         onBrushWidthChange={setBrushWidth}
@@ -199,7 +202,7 @@ export function MapWorkspace() {
           marker={selectedMarker}
           disabled={
             selectedMarker.objectVersion < 1 ||
-            mapSession.pendingStrokeCount + mapSession.pendingPathMutationCount + mapSession.pendingMarkerMutationCount > 0
+            mapSession.pendingMarkerIds.has(selectedMarker.id)
           }
           onUpdate={updateMarker}
           onPreview={setMarkerPreview}

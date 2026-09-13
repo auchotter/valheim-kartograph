@@ -24,6 +24,8 @@ import {
   parseRealtimeMessage,
 } from '../lib/realtime';
 import type { MapObjectAcceptedMessage } from '../../../shared/realtime';
+import { ScopedMutationGuard } from '../lib/mutationGuards';
+import { isMissingMapRecoveryError } from '../lib/realtimeRecovery';
 
 export type MapLoadState = 'loading' | 'ready' | 'error';
 
@@ -50,7 +52,8 @@ export function useMapSession() {
   const pendingSaveCountRef = useRef(0);
   const pendingOperationIdsRef = useRef(new Map<Id, { mapId: Id; objectId: Id }>());
   const pendingDrainWaitersRef = useRef(new Set<() => void>());
-  const markerMutationInFlightRef = useRef(new Set<Id>());
+  const pathMutationGuardRef = useRef(new ScopedMutationGuard());
+  const markerMutationGuardRef = useRef(new ScopedMutationGuard());
   const mapActionInFlightRef = useRef(false);
   const currentSocketRef = useRef<WebSocket | null>(null);
   const socketGenerationRef = useRef(0);
@@ -64,6 +67,8 @@ export function useMapSession() {
   const [pendingMarkers, setPendingMarkers] = useState<Marker[]>([]);
   const [pendingPathMutationCount, setPendingPathMutationCount] = useState(0);
   const [pendingMarkerMutationCount, setPendingMarkerMutationCount] = useState(0);
+  const [pendingPathIds, setPendingPathIds] = useState<Set<Id>>(() => new Set());
+  const [pendingMarkerIds, setPendingMarkerIds] = useState<Set<Id>>(() => new Set());
   const [loadState, setLoadState] = useState<MapLoadState>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -116,6 +121,10 @@ export function useMapSession() {
       setPendingStrokes([]);
       setPendingPaths([]);
       setPendingMarkers([]);
+      pathMutationGuardRef.current.clear();
+      markerMutationGuardRef.current.clear();
+      setPendingPathIds(new Set());
+      setPendingMarkerIds(new Set());
       setMaps((current) => replaceMap(mapList ?? current, state.map));
       setLoadError(null);
       setMapError(null);
@@ -245,6 +254,23 @@ export function useMapSession() {
       current?.close(1000, reason);
     };
 
+    const fallBackFromUnavailableMap = (): void => {
+      if (!isCurrent()) {
+        return;
+      }
+      // Invalidate this socket session before bootstrapping another map. This
+      // prevents a late close/recovery callback for the deleted map from
+      // starting another reconnect cycle.
+      recovering = true;
+      ++socketGenerationRef.current;
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      closeSocket('Map is unavailable');
+      void bootstrap();
+    };
+
     const reconcileOwnEcho = (event: MapObjectAcceptedMessage): void => {
       const pending = pendingOperationIdsRef.current.get(event.clientOperationId);
       if (pending === undefined || pending.mapId !== mapId) {
@@ -346,9 +372,7 @@ export function useMapSession() {
           return;
         }
         if (parsed.type === 'map.unavailable') {
-          recovering = true;
-          closeSocket('Map is unavailable');
-          void bootstrap();
+          fallBackFromUnavailableMap();
           return;
         }
         if (!recovering) {
@@ -393,6 +417,13 @@ export function useMapSession() {
         recovering = false;
         connect();
       } catch (error) {
+        if (isMissingMapRecoveryError(error)) {
+          // The map may have been deleted between REST hydration and socket
+          // subscription, so there is no socket event to receive. Reuse the
+          // normal bootstrap/fallback flow and stop reconnecting this session.
+          fallBackFromUnavailableMap();
+          return;
+        }
         recovering = false;
         if (isCurrent()) {
           setMapError(toMessage(error, 'Unable to recover the live map state.'));
@@ -438,6 +469,48 @@ export function useMapSession() {
     } finally {
       mapActionInFlightRef.current = false;
       setMapActionBusy(false);
+    }
+  }, []);
+
+  const beginPathMutation = useCallback((mapId: Id, pathId: Id): boolean => {
+    if (!pathMutationGuardRef.current.tryAcquire(mapId, pathId)) {
+      return false;
+    }
+    if (currentMapRef.current?.id === mapId) {
+      setPendingPathIds((current) => new Set(current).add(pathId));
+    }
+    return true;
+  }, []);
+
+  const finishPathMutation = useCallback((mapId: Id, pathId: Id): void => {
+    pathMutationGuardRef.current.release(mapId, pathId);
+    if (currentMapRef.current?.id === mapId) {
+      setPendingPathIds((current) => {
+        const next = new Set(current);
+        next.delete(pathId);
+        return next;
+      });
+    }
+  }, []);
+
+  const beginMarkerMutation = useCallback((mapId: Id, markerId: Id): boolean => {
+    if (!markerMutationGuardRef.current.tryAcquire(mapId, markerId)) {
+      return false;
+    }
+    if (currentMapRef.current?.id === mapId) {
+      setPendingMarkerIds((current) => new Set(current).add(markerId));
+    }
+    return true;
+  }, []);
+
+  const finishMarkerMutation = useCallback((mapId: Id, markerId: Id): void => {
+    markerMutationGuardRef.current.release(mapId, markerId);
+    if (currentMapRef.current?.id === mapId) {
+      setPendingMarkerIds((current) => {
+        const next = new Set(current);
+        next.delete(markerId);
+        return next;
+      });
     }
   }, []);
 
@@ -612,6 +685,9 @@ export function useMapSession() {
     }
 
     const mapId = map.id;
+    if (!beginPathMutation(mapId, gesture.id)) {
+      return;
+    }
     const optimistic = createOptimisticPath({
       id: gesture.id,
       mapId,
@@ -653,11 +729,12 @@ export function useMapSession() {
         setSaveError(toMessage(error, 'Path save failed.'));
       }
     } finally {
+      finishPathMutation(mapId, gesture.id);
       pendingOperationIdsRef.current.delete(clientOperationId);
       finishPendingMutation();
       setPendingPathMutationCount((count) => Math.max(0, count - 1));
     }
-  }, []);
+  }, [beginPathMutation, finishPathMutation]);
 
   const savePathUpdate = useCallback(async (draft: Path): Promise<void> => {
     const map = currentMapRef.current;
@@ -669,7 +746,8 @@ export function useMapSession() {
       mapActionInFlightRef.current ||
       previous === undefined ||
       previous.mapId !== map.id ||
-      previous.objectVersion < 1
+      previous.objectVersion < 1 ||
+      !beginPathMutation(map.id, draft.id)
     ) {
       return;
     }
@@ -710,7 +788,7 @@ export function useMapSession() {
       finishPendingMutation();
       setPendingPathMutationCount((count) => Math.max(0, count - 1));
     }
-  }, []);
+  }, [beginPathMutation, finishPathMutation]);
 
   const removePath = useCallback(async (pathId: Id): Promise<void> => {
     const map = currentMapRef.current;
@@ -722,6 +800,9 @@ export function useMapSession() {
     }
 
     const mapId = map.id;
+    if (!beginPathMutation(mapId, pathId)) {
+      return;
+    }
     const clientOperationId = crypto.randomUUID();
     trackPendingOperation(clientOperationId, mapId, pathId);
     pendingSaveCountRef.current += 1;
@@ -752,11 +833,12 @@ export function useMapSession() {
         setSaveError(toMessage(error, 'Path deletion failed.'));
       }
     } finally {
+      finishPathMutation(mapId, pathId);
       pendingOperationIdsRef.current.delete(clientOperationId);
       finishPendingMutation();
       setPendingPathMutationCount((count) => Math.max(0, count - 1));
     }
-  }, []);
+  }, [beginPathMutation, finishPathMutation]);
 
   const saveMarker = useCallback(async (gesture: CompletedMarkerGesture): Promise<void> => {
     const map = currentMapRef.current;
@@ -765,6 +847,9 @@ export function useMapSession() {
     }
 
     const mapId = map.id;
+    if (!beginMarkerMutation(mapId, gesture.id)) {
+      return;
+    }
     const optimistic = createOptimisticMarker({ ...gesture, mapId });
     const clientOperationId = crypto.randomUUID();
     trackPendingOperation(clientOperationId, mapId, gesture.id);
@@ -802,11 +887,12 @@ export function useMapSession() {
         setSaveError(toMessage(error, 'Marker save failed.'));
       }
     } finally {
+      finishMarkerMutation(mapId, gesture.id);
       pendingOperationIdsRef.current.delete(clientOperationId);
       finishPendingMutation();
       setPendingMarkerMutationCount((count) => Math.max(0, count - 1));
     }
-  }, []);
+  }, [beginMarkerMutation, finishMarkerMutation]);
 
   const saveMarkerUpdate = useCallback(async (draft: Marker): Promise<void> => {
     const map = currentMapRef.current;
@@ -819,7 +905,7 @@ export function useMapSession() {
       previous === undefined ||
       previous.mapId !== map.id ||
       previous.objectVersion < 1 ||
-      markerMutationInFlightRef.current.has(draft.id)
+      !beginMarkerMutation(map.id, draft.id)
     ) {
       return;
     }
@@ -827,7 +913,6 @@ export function useMapSession() {
     const mapId = map.id;
     const clientOperationId = crypto.randomUUID();
     trackPendingOperation(clientOperationId, mapId, draft.id);
-    markerMutationInFlightRef.current.add(draft.id);
     pendingSaveCountRef.current += 1;
     setPendingMarkerMutationCount((count) => count + 1);
     setObjects((current) => replaceObject(current, draft));
@@ -857,12 +942,12 @@ export function useMapSession() {
         setSaveError(toMessage(error, 'Marker update failed.'));
       }
     } finally {
-      markerMutationInFlightRef.current.delete(draft.id);
+      finishMarkerMutation(mapId, draft.id);
       pendingOperationIdsRef.current.delete(clientOperationId);
       finishPendingMutation();
       setPendingMarkerMutationCount((count) => Math.max(0, count - 1));
     }
-  }, []);
+  }, [beginMarkerMutation, finishMarkerMutation]);
 
   const removeMarker = useCallback(async (markerId: Id): Promise<void> => {
     const map = currentMapRef.current;
@@ -873,16 +958,17 @@ export function useMapSession() {
       map === null ||
       mapActionInFlightRef.current ||
       previous === undefined ||
-      previous.mapId !== map.id ||
-      markerMutationInFlightRef.current.has(markerId)
+      previous.mapId !== map.id
     ) {
       return;
     }
 
     const mapId = map.id;
+    if (!beginMarkerMutation(mapId, markerId)) {
+      return;
+    }
     const clientOperationId = crypto.randomUUID();
     trackPendingOperation(clientOperationId, mapId, markerId);
-    markerMutationInFlightRef.current.add(markerId);
     pendingSaveCountRef.current += 1;
     setPendingMarkerMutationCount((count) => count + 1);
     setObjects((current) => current.filter((object) => object.id !== markerId));
@@ -911,12 +997,12 @@ export function useMapSession() {
         setSaveError(toMessage(error, 'Marker deletion failed.'));
       }
     } finally {
-      markerMutationInFlightRef.current.delete(markerId);
+      finishMarkerMutation(mapId, markerId);
       pendingOperationIdsRef.current.delete(clientOperationId);
       finishPendingMutation();
       setPendingMarkerMutationCount((count) => Math.max(0, count - 1));
     }
-  }, []);
+  }, [beginMarkerMutation, finishMarkerMutation]);
 
   const strokes = useMemo(
     () =>
@@ -953,6 +1039,8 @@ export function useMapSession() {
     pendingStrokeCount: pendingStrokes.length,
     pendingPathMutationCount,
     pendingMarkerMutationCount,
+    pendingPathIds,
+    pendingMarkerIds,
     loadState,
     loadError,
     saveError,

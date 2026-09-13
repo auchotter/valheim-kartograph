@@ -50,6 +50,8 @@ interface MapCanvasProps {
   strokes: readonly BiomeStroke[];
   paths: readonly Path[];
   markers: readonly Marker[];
+  pendingPathIds: ReadonlySet<string>;
+  pendingMarkerIds: ReadonlySet<string>;
   pathsVisible: boolean;
   pathGeometryType: PathGeometryType;
   activeMarkerType: string;
@@ -122,6 +124,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     strokes,
     paths,
     markers,
+    pendingPathIds,
+    pendingMarkerIds,
     pathsVisible,
     pathGeometryType,
     activeMarkerType,
@@ -151,6 +155,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   const strokesRef = useRef(strokes);
   const pathsRef = useRef(paths);
   const markersRef = useRef(markers);
+  const pendingPathIdsRef = useRef(pendingPathIds);
+  const pendingMarkerIdsRef = useRef(pendingMarkerIds);
   // Interaction becomes enabled only after the authoritative map state loads.
   const terrainHydratedRef = useRef(interactionEnabled);
   const toolRef = useRef(tool);
@@ -266,6 +272,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   }, [markers, onMarkerSelectionChange]);
 
   useEffect(() => {
+    pendingPathIdsRef.current = pendingPathIds;
+    pendingMarkerIdsRef.current = pendingMarkerIds;
+  }, [pendingMarkerIds, pendingPathIds]);
+
+  useEffect(() => {
     selectedPathIdRef.current = selectedPathId;
     rendererRef.current?.setSelectedPath(selectedPathId);
   }, [selectedPathId]);
@@ -365,7 +376,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       ) {
         const markerId = selectedMarkerIdRef.current;
         const marker = markerId === null ? undefined : markersRef.current.find((candidate) => candidate.id === markerId);
-        if (marker !== undefined && marker.objectVersion > 0) {
+        if (marker !== undefined && marker.objectVersion > 0 && !pendingMarkerIdsRef.current.has(marker.id)) {
           event.preventDefault();
           onMarkerSelectionChange(null);
           onMarkerDelete(marker.id);
@@ -373,7 +384,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         }
         const pathId = selectedPathIdRef.current;
         const path = pathId === null ? undefined : pathsRef.current.find((candidate) => candidate.id === pathId);
-        if (path !== undefined && path.objectVersion > 0) {
+        if (path !== undefined && path.objectVersion > 0 && !pendingPathIdsRef.current.has(path.id)) {
           event.preventDefault();
           onPathSelectionChange(null);
           onPathDelete(path.id);
@@ -416,7 +427,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       deleteSelectedPath: () => {
         const pathId = selectedPathIdRef.current;
         const selected = pathId === null ? undefined : pathsRef.current.find((path) => path.id === pathId);
-        if (selected !== undefined && selected.objectVersion > 0) {
+        if (selected !== undefined && selected.objectVersion > 0 && !pendingPathIdsRef.current.has(selected.id)) {
           onPathSelectionChange(null);
           onPathDelete(selected.id);
         }
@@ -424,7 +435,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       deleteSelectedMarker: () => {
         const markerId = selectedMarkerIdRef.current;
         const selected = markerId === null ? undefined : markersRef.current.find((marker) => marker.id === markerId);
-        if (selected !== undefined && selected.objectVersion > 0) {
+        if (selected !== undefined && selected.objectVersion > 0 && !pendingMarkerIdsRef.current.has(selected.id)) {
           onMarkerSelectionChange(null);
           onMarkerDelete(selected.id);
         }
@@ -560,7 +571,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       if (hitMarker !== null) {
         event.preventDefault();
         selectMarker(hitMarker.id);
-        if (hitMarker.objectVersion > 0) {
+        if (hitMarker.objectVersion > 0 && !pendingMarkerIdsRef.current.has(hitMarker.id)) {
           markerDragStateRef.current = { pointerId: event.pointerId, marker: hitMarker, moved: false };
           event.currentTarget.setPointerCapture(event.pointerId);
         }
@@ -574,7 +585,9 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     if (tool === 'path' || tool === 'select') {
       const currentSelected = selectedPath();
       const controlIndex =
-        currentSelected !== null && currentSelected.objectVersion > 0
+        currentSelected !== null &&
+        currentSelected.objectVersion > 0 &&
+        !pendingPathIdsRef.current.has(currentSelected.id)
           ? hitSelectedControlPoint(currentSelected, worldPoint)
           : null;
       if (controlIndex !== null) {

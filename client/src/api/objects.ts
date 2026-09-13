@@ -1,4 +1,4 @@
-import type { Biome, BiomeStroke, Id, Path, PathGeometryType, WorldPoint } from '../../../shared/domain';
+import type { Biome, BiomeStroke, Id, Marker, Path, PathGeometryType, WorldPoint } from '../../../shared/domain';
 import { requestJson } from './http';
 
 export interface BiomeStrokeCreate {
@@ -22,6 +22,12 @@ interface PathMutationResponse {
   idempotent: boolean;
 }
 
+interface MarkerMutationResponse {
+  object: Marker;
+  mapRevision: number;
+  idempotent: boolean;
+}
+
 export interface PathCreate {
   id: Id;
   objectType: 'path';
@@ -29,6 +35,18 @@ export interface PathCreate {
   geometryType: PathGeometryType;
   strokeWidth: number;
   points: WorldPoint[];
+}
+
+export interface MarkerCreate {
+  id: Id;
+  objectType: 'marker';
+  markerType: string;
+  x: number;
+  y: number;
+  name: null;
+  note: null;
+  sizeScale: number;
+  directionDegrees: number | null;
 }
 
 export async function createBiomeStroke(
@@ -87,6 +105,59 @@ export async function deletePath(
   objectId: Id,
   baseObjectVersion: number,
 ): Promise<PathMutationResponse> {
+  return requestJson(`/api/maps/${mapId}/objects/${objectId}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ actorId, clientOperationId, baseObjectVersion }),
+  });
+}
+
+export async function createMarker(
+  mapId: Id,
+  actorId: Id,
+  clientOperationId: Id,
+  object: MarkerCreate,
+): Promise<MarkerMutationResponse> {
+  return requestJson(`/api/maps/${mapId}/objects`, {
+    method: 'POST',
+    body: JSON.stringify({ actorId, clientOperationId, object }),
+  });
+}
+
+export async function updateMarker(
+  mapId: Id,
+  actorId: Id,
+  clientOperationId: Id,
+  baseObjectVersion: number,
+  object: Marker,
+): Promise<MarkerMutationResponse> {
+  return requestJson(`/api/maps/${mapId}/objects/${object.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      actorId,
+      clientOperationId,
+      baseObjectVersion,
+      object: {
+        id: object.id,
+        objectType: 'marker',
+        markerType: object.markerType,
+        x: object.x,
+        y: object.y,
+        name: object.name,
+        note: object.note,
+        sizeScale: object.sizeScale,
+        directionDegrees: object.directionDegrees,
+      },
+    }),
+  });
+}
+
+export async function deleteMarker(
+  mapId: Id,
+  actorId: Id,
+  clientOperationId: Id,
+  objectId: Id,
+  baseObjectVersion: number,
+): Promise<MarkerMutationResponse> {
   return requestJson(`/api/maps/${mapId}/objects/${objectId}`, {
     method: 'DELETE',
     body: JSON.stringify({ actorId, clientOperationId, baseObjectVersion }),

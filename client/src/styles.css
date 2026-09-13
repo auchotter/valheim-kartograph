@@ -43,13 +43,15 @@ button {
 
 .map-canvas-host--biome_brush,
 .map-canvas-host--eraser,
-.map-canvas-host--path {
+.map-canvas-host--path,
+.map-canvas-host--marker {
   cursor: crosshair;
 }
 
 .map-canvas-host--biome_brush:active,
 .map-canvas-host--eraser:active,
-.map-canvas-host--path:active {
+.map-canvas-host--path:active,
+.map-canvas-host--marker:active {
   cursor: crosshair;
 }
 
@@ -391,6 +393,182 @@ button {
 .map-toolbar__delete:focus-visible {
   outline: 2px solid #87443a;
   outline-offset: 1px;
+}
+
+.marker-palette,
+.marker-inspector {
+  position: absolute;
+  z-index: 2;
+  color: #454940;
+  background: rgb(244 242 235 / 88%);
+  border: 1px solid rgb(80 84 73 / 18%);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgb(42 45 39 / 8%);
+  backdrop-filter: blur(6px);
+}
+
+.marker-palette {
+  top: 58px;
+  left: 50%;
+  width: min(560px, calc(100vw - 28px));
+  max-height: min(58vh, 470px);
+  padding: 8px;
+  overflow-y: auto;
+  transform: translateX(-50%);
+}
+
+.marker-palette header {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 4px 7px;
+}
+
+.marker-palette header strong {
+  font-size: 13px;
+}
+
+.marker-palette header span,
+.marker-palette__group h2 {
+  color: #6d7069;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.marker-palette__groups {
+  display: grid;
+  gap: 8px;
+}
+
+.marker-palette__group h2 {
+  margin: 0 4px 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.marker-palette__items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 3px;
+}
+
+.marker-palette__item {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  min-width: 0;
+  min-height: 36px;
+  padding: 5px 6px;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+}
+
+.marker-palette__item:hover,
+.marker-palette__item--active {
+  background: rgb(102 123 82 / 15%);
+}
+
+.marker-palette__item--active {
+  color: #35422d;
+}
+
+.marker-palette__icon {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+}
+
+.marker-palette__icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.marker-palette__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marker-palette__item:focus-visible,
+.marker-inspector button:focus-visible,
+.marker-inspector input:focus-visible {
+  outline: 2px solid #657157;
+  outline-offset: 1px;
+}
+
+.marker-inspector {
+  top: 58px;
+  right: 14px;
+  display: grid;
+  gap: 8px;
+  width: min(224px, calc(100vw - 28px));
+  padding: 9px;
+  font-size: 11px;
+}
+
+.marker-inspector header strong {
+  font-size: 12px;
+}
+
+.marker-inspector label {
+  display: grid;
+  gap: 4px;
+}
+
+.marker-inspector input {
+  min-width: 0;
+  padding: 5px 6px;
+  color: inherit;
+  font: inherit;
+  background: rgb(255 255 255 / 52%);
+  border: 1px solid rgb(80 84 73 / 24%);
+  border-radius: 4px;
+}
+
+.marker-inspector__row {
+  display: grid;
+  grid-template-columns: 1fr 25px 42px 25px;
+  gap: 4px;
+  align-items: center;
+}
+
+.marker-inspector button {
+  padding: 4px 5px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  background: rgb(102 123 82 / 10%);
+  border: 0;
+  border-radius: 4px;
+}
+
+.marker-inspector button:disabled {
+  color: #8b8e87;
+  cursor: wait;
+}
+
+.marker-inspector__row output {
+  text-align: center;
+}
+
+.marker-inspector__direction input {
+  width: 100%;
+  padding: 0;
+  accent-color: #687c57;
+  background: transparent;
+  border: 0;
+}
+
+.marker-inspector__delete {
+  color: #87443a !important;
+  background: rgb(135 68 58 / 8%) !important;
 }
 
 .north-indicator {

@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import type { BiomeStroke, Id, MapObject, MapRecord, Path } from '../../../shared/domain';
+import type { BiomeStroke, Id, MapObject, MapRecord, Marker, Path } from '../../../shared/domain';
 import { createMap, deleteMap, duplicateMap, listMaps, loadMapState, renameMap } from '../api/maps';
 import { ApiClientError } from '../api/http';
-import { createBiomeStroke, createPath, deletePath, updatePath } from '../api/objects';
+import {
+  createBiomeStroke,
+  createMarker,
+  createPath,
+  deleteMarker,
+  deletePath,
+  updateMarker,
+  updatePath,
+} from '../api/objects';
 import { actorId, rememberedMapId, rememberMapId } from '../lib/browserIdentity';
 import { createOptimisticBiomeStroke, type CompletedBrushGesture } from '../lib/biomeStroke';
 import { createOptimisticPath } from '../lib/pathObject';
+import { createOptimisticMarker, type CompletedMarkerGesture } from '../lib/markerObject';
 import type { CompletedPathGesture } from '../lib/pathGeometry';
 import { DEFAULT_CAMERA, type Camera } from '../lib/camera';
 
@@ -31,6 +40,7 @@ export function useMapSession() {
   const actorIdRef = useRef<Id | null>(null);
   const loadRequestRef = useRef(0);
   const pendingSaveCountRef = useRef(0);
+  const markerMutationInFlightRef = useRef(new Set<Id>());
   const mapActionInFlightRef = useRef(false);
 
   const [camera, setCamera] = useState<Camera>(DEFAULT_CAMERA);
@@ -39,7 +49,9 @@ export function useMapSession() {
   const [objects, setObjects] = useState<MapObject[]>([]);
   const [pendingStrokes, setPendingStrokes] = useState<BiomeStroke[]>([]);
   const [pendingPaths, setPendingPaths] = useState<Path[]>([]);
+  const [pendingMarkers, setPendingMarkers] = useState<Marker[]>([]);
   const [pendingPathMutationCount, setPendingPathMutationCount] = useState(0);
+  const [pendingMarkerMutationCount, setPendingMarkerMutationCount] = useState(0);
   const [loadState, setLoadState] = useState<MapLoadState>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -61,6 +73,7 @@ export function useMapSession() {
       setObjects(state.objects);
       setPendingStrokes([]);
       setPendingPaths([]);
+      setPendingMarkers([]);
       setMaps((current) => replaceMap(mapList ?? current, state.map));
       setLoadError(null);
       setMapError(null);
@@ -276,6 +289,7 @@ export function useMapSession() {
         setObjects([]);
         setPendingStrokes([]);
         setPendingPaths([]);
+        setPendingMarkers([]);
         return activateMap(mapList[0].id, {
           maps: mapList,
           resetCamera: true,
@@ -489,6 +503,160 @@ export function useMapSession() {
     }
   }, []);
 
+  const saveMarker = useCallback(async (gesture: CompletedMarkerGesture): Promise<void> => {
+    const map = currentMapRef.current;
+    if (map === null || mapActionInFlightRef.current) {
+      return;
+    }
+
+    const mapId = map.id;
+    const optimistic = createOptimisticMarker({ ...gesture, mapId });
+    const clientOperationId = crypto.randomUUID();
+    pendingSaveCountRef.current += 1;
+    setPendingMarkerMutationCount((count) => count + 1);
+    setPendingMarkers((current) => [...current, optimistic]);
+    setSaveError(null);
+
+    try {
+      const result = await createMarker(
+        mapId,
+        actorIdRef.current ?? (actorIdRef.current = actorId()),
+        clientOperationId,
+        {
+          id: gesture.id,
+          objectType: 'marker',
+          markerType: gesture.markerType,
+          x: gesture.x,
+          y: gesture.y,
+          name: null,
+          note: null,
+          sizeScale: 1,
+          directionDegrees: gesture.directionDegrees,
+        },
+      );
+      if (currentMapRef.current?.id !== mapId) {
+        return;
+      }
+      setPendingMarkers((current) => current.filter((marker) => marker.id !== gesture.id));
+      setObjects((current) => replaceObject(current, result.object));
+      updateCurrentMapRevision(mapId, result.mapRevision, result.object.orderKey, result.object.updatedAt, currentMapRef, setCurrentMap);
+    } catch (error) {
+      if (currentMapRef.current?.id === mapId) {
+        setPendingMarkers((current) => current.filter((marker) => marker.id !== gesture.id));
+        setSaveError(toMessage(error, 'Marker save failed.'));
+      }
+    } finally {
+      pendingSaveCountRef.current -= 1;
+      setPendingMarkerMutationCount((count) => Math.max(0, count - 1));
+    }
+  }, []);
+
+  const saveMarkerUpdate = useCallback(async (draft: Marker): Promise<void> => {
+    const map = currentMapRef.current;
+    const previous = objectsRef.current.find(
+      (object): object is Marker => object.id === draft.id && object.objectType === 'marker',
+    );
+    if (
+      map === null ||
+      mapActionInFlightRef.current ||
+      previous === undefined ||
+      previous.mapId !== map.id ||
+      previous.objectVersion < 1 ||
+      markerMutationInFlightRef.current.has(draft.id)
+    ) {
+      return;
+    }
+
+    const mapId = map.id;
+    const clientOperationId = crypto.randomUUID();
+    markerMutationInFlightRef.current.add(draft.id);
+    pendingSaveCountRef.current += 1;
+    setPendingMarkerMutationCount((count) => count + 1);
+    setObjects((current) => replaceObject(current, draft));
+    setSaveError(null);
+
+    try {
+      const result = await updateMarker(
+        mapId,
+        actorIdRef.current ?? (actorIdRef.current = actorId()),
+        clientOperationId,
+        previous.objectVersion,
+        draft,
+      );
+      if (currentMapRef.current?.id !== mapId) {
+        return;
+      }
+      setObjects((current) => replaceObject(current, result.object));
+      updateCurrentMapRevision(mapId, result.mapRevision, result.object.orderKey, result.object.updatedAt, currentMapRef, setCurrentMap);
+    } catch (error) {
+      if (currentMapRef.current?.id !== mapId) {
+        return;
+      }
+      if (error instanceof ApiClientError && error.status === 409) {
+        await refreshObjectsAfterConflict(mapId, currentMapRef, setCurrentMap, setObjects, setSaveError);
+      } else {
+        setObjects((current) => replaceObject(current, previous));
+        setSaveError(toMessage(error, 'Marker update failed.'));
+      }
+    } finally {
+      markerMutationInFlightRef.current.delete(draft.id);
+      pendingSaveCountRef.current -= 1;
+      setPendingMarkerMutationCount((count) => Math.max(0, count - 1));
+    }
+  }, []);
+
+  const removeMarker = useCallback(async (markerId: Id): Promise<void> => {
+    const map = currentMapRef.current;
+    const previous = objectsRef.current.find(
+      (object): object is Marker => object.id === markerId && object.objectType === 'marker',
+    );
+    if (
+      map === null ||
+      mapActionInFlightRef.current ||
+      previous === undefined ||
+      previous.mapId !== map.id ||
+      markerMutationInFlightRef.current.has(markerId)
+    ) {
+      return;
+    }
+
+    const mapId = map.id;
+    const clientOperationId = crypto.randomUUID();
+    markerMutationInFlightRef.current.add(markerId);
+    pendingSaveCountRef.current += 1;
+    setPendingMarkerMutationCount((count) => count + 1);
+    setObjects((current) => current.filter((object) => object.id !== markerId));
+    setSaveError(null);
+
+    try {
+      const result = await deleteMarker(
+        mapId,
+        actorIdRef.current ?? (actorIdRef.current = actorId()),
+        clientOperationId,
+        markerId,
+        previous.objectVersion,
+      );
+      if (currentMapRef.current?.id !== mapId) {
+        return;
+      }
+      updateCurrentMapRevision(mapId, result.mapRevision, previous.orderKey, result.object.updatedAt, currentMapRef, setCurrentMap);
+    } catch (error) {
+      if (currentMapRef.current?.id !== mapId) {
+        return;
+      }
+      if (error instanceof ApiClientError && error.status === 409) {
+        await refreshObjectsAfterConflict(mapId, currentMapRef, setCurrentMap, setObjects, setSaveError);
+      } else {
+        setObjects((current) => replaceObject(current, previous));
+        setSaveError(toMessage(error, 'Marker deletion failed.'));
+      }
+    } finally {
+      markerMutationInFlightRef.current.delete(markerId);
+      pendingSaveCountRef.current -= 1;
+      setPendingMarkerMutationCount((count) => Math.max(0, count - 1));
+    }
+  }, []);
+
   const strokes = useMemo(
     () =>
       [...objects.filter(isBiomeStroke), ...pendingStrokes].sort(
@@ -505,6 +673,14 @@ export function useMapSession() {
     [objects, pendingPaths],
   );
 
+  const markers = useMemo(
+    () =>
+      [...objects.filter(isMarker), ...pendingMarkers].sort(
+        (left, right) => left.layer - right.layer || left.orderKey - right.orderKey,
+      ),
+    [objects, pendingMarkers],
+  );
+
   return {
     camera,
     setCamera,
@@ -512,15 +688,21 @@ export function useMapSession() {
     currentMap,
     strokes,
     paths,
+    markers,
     pendingStrokeCount: pendingStrokes.length,
     pendingPathMutationCount,
+    pendingMarkerMutationCount,
     loadState,
     loadError,
     saveError,
     mapError,
     mapActionBusy,
     mapActionsDisabled:
-      mapActionBusy || pendingStrokes.length > 0 || pendingPathMutationCount > 0 || loadState === 'loading',
+      mapActionBusy ||
+      pendingStrokes.length > 0 ||
+      pendingPathMutationCount > 0 ||
+      pendingMarkerMutationCount > 0 ||
+      loadState === 'loading',
     retryBootstrap: bootstrap,
     switchMap,
     createAndSelectMap,
@@ -531,6 +713,9 @@ export function useMapSession() {
     savePath,
     savePathUpdate,
     removePath,
+    saveMarker,
+    saveMarkerUpdate,
+    removeMarker,
   };
 }
 
@@ -540,6 +725,10 @@ function isBiomeStroke(object: MapObject): object is BiomeStroke {
 
 function isPath(object: MapObject): object is Path {
   return object.objectType === 'path';
+}
+
+function isMarker(object: MapObject): object is Marker {
+  return object.objectType === 'marker';
 }
 
 function replaceObject(objects: readonly MapObject[], replacement: MapObject): MapObject[] {
@@ -587,10 +776,10 @@ async function refreshObjectsAfterConflict(
     currentMapRef.current = state.map;
     setCurrentMap(state.map);
     setObjects(state.objects);
-    setSaveError('Path changed elsewhere; the current map state was reloaded.');
+    setSaveError('Map object changed elsewhere; the current map state was reloaded.');
   } catch (error) {
     if (currentMapRef.current?.id === mapId) {
-      setSaveError(toMessage(error, 'Path conflict detected; unable to reload the current map.'));
+      setSaveError(toMessage(error, 'Object conflict detected; unable to reload the current map.'));
     }
   }
 }

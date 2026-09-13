@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import type { Biome, PathGeometryType, WorldPoint } from '../../../shared/domain';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Biome, Marker, PathGeometryType, WorldPoint } from '../../../shared/domain';
 import { MapMenu } from './MapMenu';
+import { MarkerInspector } from './MarkerInspector';
+import { MarkerPalette } from './MarkerPalette';
 import { MapToolbar } from './MapToolbar';
 import { MapCanvas, type MapCanvasHandle } from './map/MapCanvas';
 import { useMapSession } from '../state/useMapSession';
@@ -20,10 +22,52 @@ export function MapWorkspace() {
   const [pathsVisible, setPathsVisible] = useState(true);
   const [pathGeometryType, setPathGeometryType] = useState<PathGeometryType>('freehand');
   const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
+  const [activeMarkerType, setActiveMarkerType] = useState('home');
+  const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
+  const [markerPreview, setMarkerPreview] = useState<Marker | null>(null);
 
   useEffect(() => {
     setSelectedPathId(null);
+    setSelectedMarkerId(null);
+    setMarkerPreview(null);
   }, [mapSession.currentMap?.id]);
+
+  const selectPath = useCallback((pathId: string | null) => {
+    setSelectedPathId(pathId);
+    if (pathId !== null) {
+      setSelectedMarkerId(null);
+      setMarkerPreview(null);
+    }
+  }, []);
+
+  const selectMarker = useCallback((markerId: string | null) => {
+    setSelectedMarkerId(markerId);
+    if (markerId !== null) {
+      setSelectedPathId(null);
+    }
+    if (markerId === null) {
+      setMarkerPreview(null);
+    }
+  }, []);
+
+  const updateMarker = useCallback(
+    (marker: Marker) => {
+      setMarkerPreview(null);
+      void mapSession.saveMarkerUpdate(marker);
+    },
+    [mapSession.saveMarkerUpdate],
+  );
+
+  const deleteMarker = useCallback(
+    (markerId: string) => {
+      setSelectedMarkerId(null);
+      setMarkerPreview(null);
+      void mapSession.removeMarker(markerId);
+    },
+    [mapSession.removeMarker],
+  );
+
+  const selectedMarker = mapSession.markers.find((marker) => marker.id === selectedMarkerId) ?? null;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -47,6 +91,9 @@ export function MapWorkspace() {
         case 'v':
           setTool('select');
           break;
+        case 'm':
+          setTool('marker');
+          break;
         default:
           break;
       }
@@ -66,9 +113,13 @@ export function MapWorkspace() {
         brushWidth={brushWidth}
         strokes={mapSession.strokes}
         paths={mapSession.paths}
+        markers={mapSession.markers}
         pathsVisible={pathsVisible}
         pathGeometryType={pathGeometryType}
+        activeMarkerType={activeMarkerType}
         selectedPathId={selectedPathId}
+        selectedMarkerId={selectedMarkerId}
+        markerPreview={markerPreview}
         gridVisible={gridVisible}
         mapId={mapSession.currentMap?.id ?? null}
         interactionEnabled={mapSession.loadState === 'ready' && !mapSession.mapActionBusy}
@@ -78,7 +129,11 @@ export function MapWorkspace() {
         onPathComplete={mapSession.savePath}
         onPathUpdate={mapSession.savePathUpdate}
         onPathDelete={mapSession.removePath}
-        onPathSelectionChange={setSelectedPathId}
+        onPathSelectionChange={selectPath}
+        onMarkerComplete={mapSession.saveMarker}
+        onMarkerUpdate={updateMarker}
+        onMarkerDelete={deleteMarker}
+        onMarkerSelectionChange={selectMarker}
       />
 
       <MapMenu
@@ -135,6 +190,23 @@ export function MapWorkspace() {
         onDeleteSelectedPath={() => canvasRef.current?.deleteSelectedPath()}
       />
 
+      {tool === 'marker' && (
+        <MarkerPalette activeMarkerType={activeMarkerType} onMarkerTypeChange={setActiveMarkerType} />
+      )}
+
+      {selectedMarker !== null && (
+        <MarkerInspector
+          marker={selectedMarker}
+          disabled={
+            selectedMarker.objectVersion < 1 ||
+            mapSession.pendingStrokeCount + mapSession.pendingPathMutationCount + mapSession.pendingMarkerMutationCount > 0
+          }
+          onUpdate={updateMarker}
+          onPreview={setMarkerPreview}
+          onDelete={deleteMarker}
+        />
+      )}
+
       <aside className="north-indicator" aria-label="North points up">
         <span aria-hidden="true">↑</span>
         <span>N</span>
@@ -145,7 +217,8 @@ export function MapWorkspace() {
         <div>Cursor world X: {formatCoordinate(cursorWorld?.[0])}</div>
         <div>Cursor world Y: {formatCoordinate(cursorWorld?.[1])}</div>
         <div>Strokes: {mapSession.strokes.length}</div>
-        {mapSession.pendingStrokeCount + mapSession.pendingPathMutationCount > 0 && <div>Saving…</div>}
+        <div>Markers: {mapSession.markers.length}</div>
+        {mapSession.pendingStrokeCount + mapSession.pendingPathMutationCount + mapSession.pendingMarkerMutationCount > 0 && <div>Saving…</div>}
         {mapSession.saveError !== null && <div className="map-debug__error">Save failed: {mapSession.saveError}</div>}
       </output>
 

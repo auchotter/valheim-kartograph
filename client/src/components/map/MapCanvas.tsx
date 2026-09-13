@@ -6,7 +6,7 @@ import {
   useRef,
 } from 'react';
 import type { PointerEvent, WheelEvent } from 'react';
-import type { Biome, BiomeStroke, Path, PathGeometryType, WorldPoint } from '../../../../shared/domain';
+import type { Biome, BiomeStroke, Marker, Path, PathGeometryType, WorldPoint } from '../../../../shared/domain';
 import { biomeColor } from '../../lib/biomeStyles';
 import type { CompletedBrushGesture } from '../../lib/biomeStroke';
 import {
@@ -29,6 +29,8 @@ import {
   replacePathControlPoint,
   type CompletedPathGesture,
 } from '../../lib/pathGeometry';
+import { hitTestMarker, movedMarker } from '../../lib/markerGeometry';
+import type { CompletedMarkerGesture } from '../../lib/markerObject';
 import type { MapTool } from '../../state/mapTool';
 import { isBrushTool } from '../../state/mapTool';
 import { PixiMapRenderer, type PathPreview, type TerrainPreview } from './PixiMapRenderer';
@@ -37,6 +39,7 @@ export interface MapCanvasHandle {
   resetView: () => void;
   zoomToOne: () => void;
   deleteSelectedPath: () => void;
+  deleteSelectedMarker: () => void;
 }
 
 interface MapCanvasProps {
@@ -46,9 +49,13 @@ interface MapCanvasProps {
   brushWidth: number;
   strokes: readonly BiomeStroke[];
   paths: readonly Path[];
+  markers: readonly Marker[];
   pathsVisible: boolean;
   pathGeometryType: PathGeometryType;
+  activeMarkerType: string;
   selectedPathId: string | null;
+  selectedMarkerId: string | null;
+  markerPreview: Marker | null;
   gridVisible: boolean;
   mapId: string | null;
   interactionEnabled: boolean;
@@ -59,6 +66,10 @@ interface MapCanvasProps {
   onPathUpdate: (path: Path) => void;
   onPathDelete: (pathId: string) => void;
   onPathSelectionChange: (pathId: string | null) => void;
+  onMarkerComplete: (gesture: CompletedMarkerGesture) => void;
+  onMarkerUpdate: (marker: Marker) => void;
+  onMarkerDelete: (markerId: string) => void;
+  onMarkerSelectionChange: (markerId: string | null) => void;
 }
 
 interface PanState {
@@ -90,6 +101,12 @@ interface PathEditState {
   pointIndex: number;
 }
 
+interface MarkerDragState {
+  pointerId: number;
+  marker: Marker;
+  moved: boolean;
+}
+
 interface PositionedEvent {
   currentTarget: HTMLDivElement;
   clientX: number;
@@ -104,9 +121,13 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     brushWidth,
     strokes,
     paths,
+    markers,
     pathsVisible,
     pathGeometryType,
+    activeMarkerType,
     selectedPathId,
+    selectedMarkerId,
+    markerPreview,
     gridVisible,
     mapId,
     interactionEnabled,
@@ -117,6 +138,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     onPathUpdate,
     onPathDelete,
     onPathSelectionChange,
+    onMarkerComplete,
+    onMarkerUpdate,
+    onMarkerDelete,
+    onMarkerSelectionChange,
   },
   ref,
 ) {
@@ -125,11 +150,15 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   const cameraRef = useRef(camera);
   const strokesRef = useRef(strokes);
   const pathsRef = useRef(paths);
+  const markersRef = useRef(markers);
   // Interaction becomes enabled only after the authoritative map state loads.
   const terrainHydratedRef = useRef(interactionEnabled);
   const toolRef = useRef(tool);
   const pathGeometryTypeRef = useRef(pathGeometryType);
   const selectedPathIdRef = useRef<string | null>(selectedPathId);
+  const selectedMarkerIdRef = useRef<string | null>(selectedMarkerId);
+  const activeMarkerTypeRef = useRef(activeMarkerType);
+  const markerPreviewRef = useRef<Marker | null>(markerPreview);
   const pathsVisibleRef = useRef(pathsVisible);
   const biomeRef = useRef(biome);
   const brushWidthRef = useRef(brushWidth);
@@ -138,6 +167,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   const drawingStateRef = useRef<DrawingState | null>(null);
   const pathDrawingStateRef = useRef<PathDrawingState | null>(null);
   const pathEditStateRef = useRef<PathEditState | null>(null);
+  const markerDragStateRef = useRef<MarkerDragState | null>(null);
   const pointerWorldRef = useRef<WorldPoint | null>(null);
   const spacePressedRef = useRef(false);
 
@@ -222,9 +252,33 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   }, [onPathSelectionChange, paths]);
 
   useEffect(() => {
+    markersRef.current = markers;
+    rendererRef.current?.setMarkers(markers);
+    const selectedStillExists =
+      selectedMarkerIdRef.current !== null && markers.some((marker) => marker.id === selectedMarkerIdRef.current);
+    if (!selectedStillExists && selectedMarkerIdRef.current !== null) {
+      selectedMarkerIdRef.current = null;
+      onMarkerSelectionChange(null);
+    }
+    if (markerDragStateRef.current === null) {
+      rendererRef.current?.setMarkerEditPreview(null);
+    }
+  }, [markers, onMarkerSelectionChange]);
+
+  useEffect(() => {
     selectedPathIdRef.current = selectedPathId;
     rendererRef.current?.setSelectedPath(selectedPathId);
   }, [selectedPathId]);
+
+  useEffect(() => {
+    selectedMarkerIdRef.current = selectedMarkerId;
+    rendererRef.current?.setSelectedMarker(selectedMarkerId);
+  }, [selectedMarkerId]);
+
+  useEffect(() => {
+    markerPreviewRef.current = markerPreview;
+    rendererRef.current?.setMarkerEditPreview(markerPreview);
+  }, [markerPreview]);
 
   useEffect(() => {
     // Map switches replace the authoritative object set; no transient gesture
@@ -232,9 +286,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     drawingStateRef.current = null;
     pathDrawingStateRef.current = null;
     pathEditStateRef.current = null;
+    markerDragStateRef.current = null;
     rendererRef.current?.setTerrainPreview(null);
     rendererRef.current?.setPathPreview(null);
     rendererRef.current?.setPathEditPreview(null);
+    rendererRef.current?.setMarkerEditPreview(null);
   }, [mapId]);
 
   useEffect(() => {
@@ -250,10 +306,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   useEffect(() => {
     toolRef.current = tool;
     pathGeometryTypeRef.current = pathGeometryType;
+    activeMarkerTypeRef.current = activeMarkerType;
     biomeRef.current = biome;
     brushWidthRef.current = brushWidth;
     updateBrushCursor(pointerWorldRef.current);
-  }, [biome, brushWidth, pathGeometryType, tool, updateBrushCursor]);
+  }, [activeMarkerType, biome, brushWidth, pathGeometryType, tool, updateBrushCursor]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -274,8 +331,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       renderer.setCamera(cameraRef.current);
       renderer.setTerrainStrokes(strokesRef.current);
       renderer.setPaths(pathsRef.current);
+      renderer.setMarkers(markersRef.current);
       renderer.setPathsVisible(pathsVisibleRef.current);
       renderer.setSelectedPath(selectedPathIdRef.current);
+      renderer.setSelectedMarker(selectedMarkerIdRef.current);
+      renderer.setMarkerEditPreview(markerPreviewRef.current);
       if (terrainHydratedRef.current) {
         renderer.requestInitialTerrainRedraw();
       }
@@ -301,14 +361,22 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       }
       if (
         (event.key === 'Delete' || event.key === 'Backspace') &&
-        !isTypingTarget(event.target) &&
-        selectedPathIdRef.current !== null
+        !isTypingTarget(event.target)
       ) {
-        const selected = pathsRef.current.find((path) => path.id === selectedPathIdRef.current);
-        if (selected !== undefined && selected.objectVersion > 0) {
+        const markerId = selectedMarkerIdRef.current;
+        const marker = markerId === null ? undefined : markersRef.current.find((candidate) => candidate.id === markerId);
+        if (marker !== undefined && marker.objectVersion > 0) {
+          event.preventDefault();
+          onMarkerSelectionChange(null);
+          onMarkerDelete(marker.id);
+          return;
+        }
+        const pathId = selectedPathIdRef.current;
+        const path = pathId === null ? undefined : pathsRef.current.find((candidate) => candidate.id === pathId);
+        if (path !== undefined && path.objectVersion > 0) {
           event.preventDefault();
           onPathSelectionChange(null);
-          onPathDelete(selected.id);
+          onPathDelete(path.id);
         }
       }
     };
@@ -323,9 +391,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       drawingStateRef.current = null;
       pathDrawingStateRef.current = null;
       pathEditStateRef.current = null;
+      markerDragStateRef.current = null;
       rendererRef.current?.setTerrainPreview(null);
       rendererRef.current?.setPathPreview(null);
       rendererRef.current?.setPathEditPreview(null);
+      rendererRef.current?.setMarkerEditPreview(null);
     };
 
     window.addEventListener('keydown', onKeyDown);
@@ -336,7 +406,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onWindowBlur);
     };
-  }, [onPathDelete, onPathSelectionChange]);
+  }, [onMarkerDelete, onMarkerSelectionChange, onPathDelete, onPathSelectionChange]);
 
   useImperativeHandle(
     ref,
@@ -351,8 +421,16 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
           onPathDelete(selected.id);
         }
       },
+      deleteSelectedMarker: () => {
+        const markerId = selectedMarkerIdRef.current;
+        const selected = markerId === null ? undefined : markersRef.current.find((marker) => marker.id === markerId);
+        if (selected !== undefined && selected.objectVersion > 0) {
+          onMarkerSelectionChange(null);
+          onMarkerDelete(selected.id);
+        }
+      },
     }),
-    [commitCamera, onPathDelete, onPathSelectionChange],
+    [commitCamera, onMarkerDelete, onMarkerSelectionChange, onPathDelete, onPathSelectionChange],
   );
 
   const screenPointFromPointer = (event: PositionedEvent): ScreenPoint => {
@@ -378,7 +456,23 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   const selectPath = (pathId: string | null): void => {
     selectedPathIdRef.current = pathId;
     rendererRef.current?.setSelectedPath(pathId);
+    if (pathId !== null && selectedMarkerIdRef.current !== null) {
+      selectedMarkerIdRef.current = null;
+      rendererRef.current?.setSelectedMarker(null);
+      onMarkerSelectionChange(null);
+    }
     onPathSelectionChange(pathId);
+  };
+
+  const selectMarker = (markerId: string | null): void => {
+    selectedMarkerIdRef.current = markerId;
+    rendererRef.current?.setSelectedMarker(markerId);
+    if (markerId !== null && selectedPathIdRef.current !== null) {
+      selectedPathIdRef.current = null;
+      rendererRef.current?.setSelectedPath(null);
+      onPathSelectionChange(null);
+    }
+    onMarkerSelectionChange(markerId);
   };
 
   const previewPathDrawing = (drawing: PathDrawingState): void => {
@@ -445,6 +539,36 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
 
     if (event.button !== 0 || worldPoint === null) {
       return;
+    }
+
+    if (tool === 'marker') {
+      event.preventDefault();
+      const id = crypto.randomUUID();
+      selectMarker(id);
+      onMarkerComplete({
+        id,
+        markerType: activeMarkerTypeRef.current,
+        x: worldPoint[0],
+        y: worldPoint[1],
+        directionDegrees: activeMarkerTypeRef.current === 'vegvisir' ? 0 : null,
+      });
+      return;
+    }
+
+    if (tool === 'select') {
+      const hitMarker = hitTestMarker(markersRef.current, worldPoint, cameraRef.current.zoom);
+      if (hitMarker !== null) {
+        event.preventDefault();
+        selectMarker(hitMarker.id);
+        if (hitMarker.objectVersion > 0) {
+          markerDragStateRef.current = { pointerId: event.pointerId, marker: hitMarker, moved: false };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }
+        return;
+      }
+      // A path may still be hit below this point. Clear marker selection now,
+      // then the path branch below may replace it.
+      selectMarker(null);
     }
 
     if (tool === 'path' || tool === 'select') {
@@ -560,6 +684,17 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       pathEdit.path = draft;
       rendererRef.current?.setPathEditPreview(draft);
     }
+
+    const markerDrag = markerDragStateRef.current;
+    if (markerDrag?.pointerId === event.pointerId && worldPoint !== null) {
+      event.preventDefault();
+      const draft = movedMarker(markerDrag.marker, worldPoint);
+      if (draft.x !== markerDrag.marker.x || draft.y !== markerDrag.marker.y) {
+        markerDrag.moved = true;
+      }
+      markerDrag.marker = draft;
+      rendererRef.current?.setMarkerEditPreview(draft);
+    }
   };
 
   const finishDrawing = (event: PointerEvent<HTMLDivElement>) => {
@@ -626,6 +761,21 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     onPathUpdate(editing.path);
   };
 
+  const finishMarkerDrag = (event: PointerEvent<HTMLDivElement>) => {
+    const dragging = markerDragStateRef.current;
+    if (dragging?.pointerId !== event.pointerId) {
+      return;
+    }
+    markerDragStateRef.current = null;
+    if (!dragging.moved) {
+      rendererRef.current?.setMarkerEditPreview(null);
+      return;
+    }
+    // Preserve the direct display until the versioned optimistic update lands.
+    rendererRef.current?.setMarkerEditPreview(dragging.marker);
+    onMarkerUpdate(dragging.marker);
+  };
+
   const endPointerInteraction = (event: PointerEvent<HTMLDivElement>, cancelled: boolean) => {
     if (drawingStateRef.current?.pointerId === event.pointerId) {
       if (cancelled) {
@@ -651,6 +801,15 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         rendererRef.current?.setPathEditPreview(null);
       } else {
         finishPathEdit(event);
+      }
+    }
+
+    if (markerDragStateRef.current?.pointerId === event.pointerId) {
+      if (cancelled) {
+        markerDragStateRef.current = null;
+        rendererRef.current?.setMarkerEditPreview(null);
+      } else {
+        finishMarkerDrag(event);
       }
     }
 

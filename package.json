@@ -18,6 +18,7 @@
     "verify:camera": "tsx scripts/verify-camera.ts",
     "verify:geometry": "tsx scripts/verify-geometry.ts",
     "verify:paths": "tsx scripts/verify-paths.ts",
+    "verify:markers": "tsx scripts/verify-markers.ts",
     "verify:schema": "tsx scripts/verify-schema.ts",
     "verify:api": "tsx scripts/verify-api.ts",
     "start": "node dist/server/index.js"

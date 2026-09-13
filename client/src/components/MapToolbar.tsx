@@ -41,6 +41,7 @@ export function MapToolbar({
         />
         <ToolButton active={tool === 'eraser'} label="Eraser" shortcut="E" onClick={() => onToolChange('eraser')} />
         <ToolButton active={tool === 'path'} label="Path" shortcut="P" onClick={() => onToolChange('path')} />
+        <ToolButton active={tool === 'marker'} label="Marker" shortcut="M" onClick={() => onToolChange('marker')} />
         <ToolButton active={tool === 'select'} label="Select" shortcut="V" onClick={() => onToolChange('select')} />
       </div>
 

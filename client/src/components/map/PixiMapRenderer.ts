@@ -5,15 +5,23 @@ import {
   Graphics,
   RenderTexture,
   Sprite,
+  Text,
   TilingSprite,
   UniformGroup,
 } from 'pixi.js';
-import type { Biome, BiomeStroke, Path, PathGeometryType, WorldPoint } from '../../../../shared/domain';
+import type { Biome, BiomeStroke, Marker, Path, PathGeometryType, WorldPoint } from '../../../../shared/domain';
 import { MapLayer } from '../../../../shared/domain';
 import { biomeTexture } from '../../lib/biomeTextures';
 import { chooseGridSpacing } from '../../lib/grid';
 import { strokeBoundingBox } from '../../lib/strokeGeometry';
 import { pathPolyline } from '../../lib/pathGeometry';
+import { drawMarkerIcon, MARKER_ICON_VIEWBOX } from '../../lib/markerIcons';
+import {
+  effectiveMarkerVisualDiameterCss,
+  markerCaptionOffsetCss,
+  markerIconLocalScale,
+  markerRootWorldScale,
+} from '../../lib/markerGeometry';
 import type { Camera } from '../../lib/camera';
 
 const PARCHMENT_COLOR = 0xe8e1d1;
@@ -84,6 +92,11 @@ export class PixiMapRenderer {
   private readonly pathSelection = new Container();
   private readonly pathGraphics = new Map<string, Graphics>();
   private readonly markers = new Container();
+  private readonly markerShapes = new Container();
+  private readonly markerEdit = new Container();
+  private readonly markerSelection = new Container();
+  private readonly markerNodes = new Map<string, Container>();
+  private readonly markerVisualNodes = new Map<string, Container>();
   private readonly labels = new Container();
   private readonly brushCursor = new Graphics();
   private readonly coastlineUniforms = new UniformGroup({
@@ -93,12 +106,15 @@ export class PixiMapRenderer {
   private camera: Camera | null = null;
   private strokes: readonly BiomeStroke[] = [];
   private pathObjects: readonly Path[] = [];
+  private markerObjects: readonly Marker[] = [];
   private preview: TerrainPreview | null = null;
   private activePathPreview: PathPreview | null = null;
   private selectedPathId: string | null = null;
   private pathEditPreview: Path | null = null;
   private pathsVisible = true;
   private renderedPathZoom: number | null = null;
+  private selectedMarkerId: string | null = null;
+  private markerEditPreview: Marker | null = null;
   private cursor: BrushCursor | null = null;
   private gridVisible = false;
   private initialized = false;
@@ -136,6 +152,9 @@ export class PixiMapRenderer {
     };
     this.terrain.addChild(this.terrainStrokes, this.terrainPreview);
     this.paths.addChild(this.pathShapes, this.pathEdit, this.pathPreview, this.pathSelection);
+    // Marker roots remain directly in the camera-transformed world layer.
+    // Their visual children alone receive inverse zoom compensation.
+    this.markers.addChild(this.markerShapes, this.markerEdit, this.markerSelection);
     this.terrainWorld.addChild(layerContainers[MapLayer.Terrain]);
     this.classificationWorld.addChild(this.terrainClassification);
     this.gridWorld.addChild(this.grid);
@@ -162,6 +181,7 @@ export class PixiMapRenderer {
     this.rebuildTerrain();
     this.rebuildPreview();
     this.rebuildPaths();
+    this.rebuildMarkers();
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
     this.resize();
@@ -185,6 +205,8 @@ export class PixiMapRenderer {
     // dot and handle dimensions in screen pixels after a zoom change.
     if (zoomChanged) {
       this.rebuildPaths();
+      this.updateMarkerVisualScales();
+      this.rebuildMarkerSelection();
     }
   }
 
@@ -248,6 +270,28 @@ export class PixiMapRenderer {
     this.activePathPreview = preview;
     if (this.initialized) {
       this.rebuildPathPreview();
+    }
+  }
+
+  setMarkers(markers: readonly Marker[]): void {
+    this.markerObjects = markers;
+    if (this.initialized) {
+      this.rebuildMarkers();
+    }
+  }
+
+  setSelectedMarker(markerId: string | null): void {
+    this.selectedMarkerId = markerId;
+    if (this.initialized) {
+      this.rebuildMarkerSelection();
+    }
+  }
+
+  setMarkerEditPreview(marker: Marker | null): void {
+    this.markerEditPreview = marker;
+    if (this.initialized) {
+      this.rebuildMarkerEditPreview();
+      this.rebuildMarkerSelection();
     }
   }
 
@@ -474,6 +518,79 @@ export class PixiMapRenderer {
     this.pathSelection.addChild(handles);
   }
 
+  /** Rebuilds only marker presentation; terrain and paths are unaffected. */
+  private rebuildMarkers(): void {
+    destroyChildren(this.markerShapes);
+    this.markerNodes.clear();
+    this.markerVisualNodes.clear();
+    const ordered = [...this.markerObjects]
+      .filter((marker) => marker.deletedAt === null)
+      .sort((left, right) => left.layer - right.layer || left.orderKey - right.orderKey);
+    for (const marker of ordered) {
+      const renderable = createMarkerRenderable(marker, this.camera?.zoom ?? 1);
+      this.markerShapes.addChild(renderable.root);
+      this.markerNodes.set(marker.id, renderable.root);
+      this.markerVisualNodes.set(marker.id, renderable.visual);
+    }
+    this.rebuildMarkerEditPreview();
+    this.rebuildMarkerSelection();
+  }
+
+  private rebuildMarkerEditPreview(): void {
+    destroyChildren(this.markerEdit);
+    for (const node of this.markerNodes.values()) {
+      node.visible = true;
+    }
+    if (this.markerEditPreview === null) {
+      return;
+    }
+    const original = this.markerNodes.get(this.markerEditPreview.id);
+    if (original !== undefined) {
+      original.visible = false;
+    }
+    this.markerEdit.addChild(createMarkerRenderable(this.markerEditPreview, this.camera?.zoom ?? 1).root);
+  }
+
+  private rebuildMarkerSelection(): void {
+    destroyChildren(this.markerSelection);
+    if (this.selectedMarkerId === null) {
+      return;
+    }
+    const selected =
+      this.markerEditPreview?.id === this.selectedMarkerId
+        ? this.markerEditPreview
+        : this.markerObjects.find((marker) => marker.id === this.selectedMarkerId && marker.deletedAt === null);
+    if (selected === undefined || selected === null) {
+      return;
+    }
+    const zoom = this.camera?.zoom ?? 1;
+    const root = new Container();
+    root.position.set(selected.x, selected.y);
+    const visual = new Container();
+    visual.scale.set(markerRootWorldScale(zoom));
+    visual
+      .addChild(new Graphics()
+        .circle(0, 0, effectiveMarkerVisualDiameterCss(selected.sizeScale, zoom) * 0.68 + 4)
+        .stroke({ color: 0x81745f, alpha: 0.72, width: 1.2 }));
+    root.addChild(visual);
+    this.markerSelection.addChild(root);
+  }
+
+  private updateMarkerVisualScales(): void {
+    const zoom = this.camera?.zoom ?? 1;
+    for (const marker of this.markerObjects) {
+      const visual = this.markerVisualNodes.get(marker.id);
+      if (visual !== undefined) {
+        applyMarkerVisualTransform(visual, marker, zoom);
+      }
+    }
+    const editRoot = this.markerEdit.children[0];
+    const editVisual = editRoot?.children[0];
+    if (editVisual instanceof Container && this.markerEditPreview !== null) {
+      applyMarkerVisualTransform(editVisual, this.markerEditPreview, zoom);
+    }
+  }
+
   private redrawBrushCursor(): void {
     this.brushCursor.clear();
     if (this.cursor === null || !this.cursor.visible) {
@@ -576,6 +693,47 @@ export class PixiMapRenderer {
 
 type TerrainStroke = Pick<TerrainPreview, 'mode' | 'biome' | 'brushWidth' | 'points'>;
 type DottedPath = Pick<Path, 'geometryType' | 'points'> | PathPreview;
+
+function createMarkerRenderable(marker: Marker, zoom: number): { root: Container; visual: Container } {
+  const root = new Container();
+  root.position.set(marker.x, marker.y);
+  const visual = new Container();
+
+  const icon = new Graphics();
+  drawMarkerIcon(icon, marker.markerType, marker.directionDegrees);
+  icon.pivot.set(MARKER_ICON_VIEWBOX / 2, MARKER_ICON_VIEWBOX / 2);
+  visual.addChild(icon);
+
+  if (marker.name !== null && marker.name.length > 0) {
+    const caption = new Text({
+      text: marker.name,
+      style: {
+        fill: 0x3f3a33,
+        fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
+        fontSize: 12,
+        fontWeight: '500',
+      },
+    });
+    caption.anchor.set(0.5, 0);
+    visual.addChild(caption);
+  }
+  applyMarkerVisualTransform(visual, marker, zoom);
+  root.addChild(visual);
+  return { root, visual };
+}
+
+/** Assigns all marker visual transforms from canonical marker data. */
+function applyMarkerVisualTransform(visual: Container, marker: Marker, zoom: number): void {
+  visual.scale.set(markerRootWorldScale(zoom));
+  const icon = visual.children[0];
+  if (icon !== undefined) {
+    icon.scale.set(markerIconLocalScale(marker.sizeScale, zoom));
+  }
+  const caption = visual.children[1];
+  if (caption instanceof Text) {
+    caption.position.set(0, markerCaptionOffsetCss(marker.sizeScale, zoom));
+  }
+}
 
 /**
  * One Graphics object per path keeps the draw tree compact. Dot coordinates

@@ -1,0 +1,21 @@
+name: valheim-map
+
+services:
+  app:
+    build:
+      context: .
+      target: production
+    image: valheim-map:latest
+    restart: unless-stopped
+    ports:
+      - "${VALHEIM_MAP_PORT:-3000}:3000"
+    volumes:
+      - type: bind
+        source: ${VALHEIM_MAP_DATA_DIR:?Set VALHEIM_MAP_DATA_DIR in .env}
+        target: /data
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge

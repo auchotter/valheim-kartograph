@@ -1,0 +1,50 @@
+{
+  "name": "valheim-map",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A self-hosted collaborative Valheim map.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:client": "vite --host 0.0.0.0",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build",
+    "build:server": "tsc -p tsconfig.server.json",
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p client/tsconfig.json --noEmit",
+    "verify:camera": "tsx scripts/verify-camera.ts",
+    "verify:geometry": "tsx scripts/verify-geometry.ts",
+    "verify:schema": "tsx scripts/verify-schema.ts",
+    "verify:api": "tsx scripts/verify-api.ts",
+    "start": "node dist/server/index.js"
+  },
+  "dependencies": {
+    "@fastify/static": "^8.3.0",
+    "@fastify/websocket": "^11.3.0",
+    "better-sqlite3": "^12.6.2",
+    "fastify": "^5.12.4",
+    "pixi.js": "^8.20.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.10.13",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.5.16",
+    "@vitejs/plugin-react": "^5.1.4",
+    "concurrently": "^9.2.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.2"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.28.2": true
+  }
+}

@@ -42,12 +42,14 @@ button {
 }
 
 .map-canvas-host--biome_brush,
-.map-canvas-host--eraser {
+.map-canvas-host--eraser,
+.map-canvas-host--path {
   cursor: crosshair;
 }
 
 .map-canvas-host--biome_brush:active,
-.map-canvas-host--eraser:active {
+.map-canvas-host--eraser:active,
+.map-canvas-host--path:active {
   cursor: crosshair;
 }
 
@@ -371,6 +373,24 @@ button {
   width: 88px;
   margin: 0;
   accent-color: #687c57;
+}
+
+.map-toolbar__delete {
+  padding: 5px 7px;
+  color: #87443a;
+  cursor: pointer;
+  background: rgb(135 68 58 / 8%);
+  border: 0;
+  border-radius: 5px;
+}
+
+.map-toolbar__delete:hover {
+  background: rgb(135 68 58 / 15%);
+}
+
+.map-toolbar__delete:focus-visible {
+  outline: 2px solid #87443a;
+  outline-offset: 1px;
 }
 
 .north-indicator {

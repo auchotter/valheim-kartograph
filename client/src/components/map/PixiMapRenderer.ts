@@ -8,16 +8,23 @@ import {
   TilingSprite,
   UniformGroup,
 } from 'pixi.js';
-import type { Biome, BiomeStroke, WorldPoint } from '../../../../shared/domain';
+import type { Biome, BiomeStroke, Path, PathGeometryType, WorldPoint } from '../../../../shared/domain';
 import { MapLayer } from '../../../../shared/domain';
 import { biomeTexture } from '../../lib/biomeTextures';
 import { chooseGridSpacing } from '../../lib/grid';
 import { strokeBoundingBox } from '../../lib/strokeGeometry';
+import { pathPolyline } from '../../lib/pathGeometry';
 import type { Camera } from '../../lib/camera';
 
 const PARCHMENT_COLOR = 0xe8e1d1;
 const CLASSIFICATION_LAND_COLOR = 0xff0000;
 const CLASSIFICATION_OCEAN_COLOR = 0x0000ff;
+const PATH_COLOR = 0x4b463d;
+const PATH_SELECTION_COLOR = 0x918066;
+const HANDLE_RADIUS_CSS = 6.5;
+const PATH_DOT_RADIUS_CSS = 1.7;
+const PATH_DOT_SPACING_CSS = 8;
+const MAX_DOTS_PER_PATH = 6_000;
 // Set locally while diagnosing Pixi render-target output. This is deliberately
 // not exposed as an application control and remains disabled in normal builds.
 const SHOW_CLASSIFICATION_DEBUG = false;
@@ -34,6 +41,12 @@ export interface BrushCursor {
   point: WorldPoint;
   brushWidth: number;
   color: number;
+}
+
+export interface PathPreview {
+  geometryType: PathGeometryType;
+  strokeWidth: number;
+  points: readonly WorldPoint[];
 }
 
 /**
@@ -65,6 +78,11 @@ export class PixiMapRenderer {
   private readonly overlayWorld = new Container();
   private readonly origin = new Graphics();
   private readonly paths = new Container();
+  private readonly pathShapes = new Container();
+  private readonly pathEdit = new Container();
+  private readonly pathPreview = new Container();
+  private readonly pathSelection = new Container();
+  private readonly pathGraphics = new Map<string, Graphics>();
   private readonly markers = new Container();
   private readonly labels = new Container();
   private readonly brushCursor = new Graphics();
@@ -74,7 +92,13 @@ export class PixiMapRenderer {
   private coastlineFilter: Filter | null = null;
   private camera: Camera | null = null;
   private strokes: readonly BiomeStroke[] = [];
+  private pathObjects: readonly Path[] = [];
   private preview: TerrainPreview | null = null;
+  private activePathPreview: PathPreview | null = null;
+  private selectedPathId: string | null = null;
+  private pathEditPreview: Path | null = null;
+  private pathsVisible = true;
+  private renderedPathZoom: number | null = null;
   private cursor: BrushCursor | null = null;
   private gridVisible = false;
   private initialized = false;
@@ -111,6 +135,7 @@ export class PixiMapRenderer {
       [MapLayer.Labels]: this.labels,
     };
     this.terrain.addChild(this.terrainStrokes, this.terrainPreview);
+    this.paths.addChild(this.pathShapes, this.pathEdit, this.pathPreview, this.pathSelection);
     this.terrainWorld.addChild(layerContainers[MapLayer.Terrain]);
     this.classificationWorld.addChild(this.terrainClassification);
     this.gridWorld.addChild(this.grid);
@@ -136,6 +161,7 @@ export class PixiMapRenderer {
     this.addOriginIndicator();
     this.rebuildTerrain();
     this.rebuildPreview();
+    this.rebuildPaths();
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
     this.resize();
@@ -152,8 +178,14 @@ export class PixiMapRenderer {
       return;
     }
 
+    const zoomChanged = this.camera?.zoom !== camera.zoom;
     this.camera = camera;
     this.applyCameraTransform();
+    // Paths themselves follow the camera container. Rebuild only to preserve
+    // dot and handle dimensions in screen pixels after a zoom change.
+    if (zoomChanged) {
+      this.rebuildPaths();
+    }
   }
 
   setTerrainStrokes(strokes: readonly BiomeStroke[]): void {
@@ -179,6 +211,43 @@ export class PixiMapRenderer {
     if (this.initialized) {
       this.rebuildPreview();
       this.scheduleTerrainRender();
+    }
+  }
+
+  setPaths(paths: readonly Path[]): void {
+    this.pathObjects = paths;
+    if (this.initialized) {
+      this.rebuildPaths();
+    }
+  }
+
+  setPathsVisible(visible: boolean): void {
+    this.pathsVisible = visible;
+    this.paths.visible = visible;
+    if (visible && this.initialized) {
+      this.rebuildPathSelection();
+    }
+  }
+
+  setSelectedPath(pathId: string | null): void {
+    this.selectedPathId = pathId;
+    if (this.initialized) {
+      this.rebuildPathSelection();
+    }
+  }
+
+  setPathEditPreview(path: Path | null): void {
+    this.pathEditPreview = path;
+    if (this.initialized) {
+      this.rebuildPathEditPreview();
+      this.rebuildPathSelection();
+    }
+  }
+
+  setPathPreview(preview: PathPreview | null): void {
+    this.activePathPreview = preview;
+    if (this.initialized) {
+      this.rebuildPathPreview();
     }
   }
 
@@ -326,6 +395,85 @@ export class PixiMapRenderer {
     }
   }
 
+  /** Rebuilds direct Paths-layer display objects only; terrain is untouched. */
+  private rebuildPaths(): void {
+    destroyChildren(this.pathShapes);
+    this.pathGraphics.clear();
+    this.renderedPathZoom = this.camera?.zoom ?? 1;
+    const ordered = [...this.pathObjects]
+      .filter((path) => path.deletedAt === null)
+      .sort((left, right) => left.layer - right.layer || left.orderKey - right.orderKey);
+
+    for (const path of ordered) {
+      const graphic = new Graphics();
+      drawDottedPath(graphic, path, this.renderedPathZoom, PATH_COLOR, 0.92, false);
+      this.pathShapes.addChild(graphic);
+      this.pathGraphics.set(path.id, graphic);
+    }
+    this.rebuildPathEditPreview();
+    this.rebuildPathPreview();
+    this.rebuildPathSelection();
+  }
+
+  private rebuildPathEditPreview(): void {
+    destroyChildren(this.pathEdit);
+    for (const graphic of this.pathGraphics.values()) {
+      graphic.visible = true;
+    }
+    if (this.pathEditPreview === null) {
+      return;
+    }
+    const original = this.pathGraphics.get(this.pathEditPreview.id);
+    if (original !== undefined) {
+      original.visible = false;
+    }
+    const graphic = new Graphics();
+    drawDottedPath(graphic, this.pathEditPreview, this.camera?.zoom ?? 1, PATH_COLOR, 0.92, false);
+    this.pathEdit.addChild(graphic);
+  }
+
+  private rebuildPathPreview(): void {
+    destroyChildren(this.pathPreview);
+    if (this.activePathPreview === null) {
+      return;
+    }
+    const graphic = new Graphics();
+    drawDottedPath(graphic, this.activePathPreview, this.camera?.zoom ?? 1, PATH_COLOR, 0.62, false);
+    this.pathPreview.addChild(graphic);
+  }
+
+  private rebuildPathSelection(): void {
+    destroyChildren(this.pathSelection);
+    if (!this.pathsVisible || this.selectedPathId === null) {
+      return;
+    }
+    const selected =
+      this.pathEditPreview?.id === this.selectedPathId
+        ? this.pathEditPreview
+        : this.pathObjects.find((path) => path.id === this.selectedPathId && path.deletedAt === null);
+    if (selected === undefined || selected === null) {
+      return;
+    }
+
+    const zoom = this.camera?.zoom ?? 1;
+    const highlight = new Graphics();
+    drawDottedPath(highlight, selected, zoom, PATH_SELECTION_COLOR, 0.38, true);
+    this.pathSelection.addChild(highlight);
+
+    if (selected.geometryType === 'freehand') {
+      return;
+    }
+    const handles = new Graphics();
+    const radius = HANDLE_RADIUS_CSS / zoom;
+    for (const point of selected.points) {
+      handles
+        .circle(point[0], point[1], radius)
+        .fill({ color: 0xf2eee4, alpha: 0.96 })
+        .stroke({ color: PATH_COLOR, alpha: 0.9, width: 1.35 / zoom });
+    }
+    this.pathSelection.addChild(handles);
+  }
+
   private redrawBrushCursor(): void {
     this.brushCursor.clear();
     if (this.cursor === null || !this.cursor.visible) {
@@ -427,6 +575,69 @@ export class PixiMapRenderer {
 }
 
 type TerrainStroke = Pick<TerrainPreview, 'mode' | 'biome' | 'brushWidth' | 'points'>;
+type DottedPath = Pick<Path, 'geometryType' | 'points'> | PathPreview;
+
+/**
+ * One Graphics object per path keeps the draw tree compact. Dot coordinates
+ * are calculated in world units from a CSS-pixel target, so the camera can pan
+ * by transforming the Paths container without regenerating a path.
+ */
+function drawDottedPath(
+  graphic: Graphics,
+  path: DottedPath,
+  zoom: number,
+  color: number,
+  alpha: number,
+  highlighted: boolean,
+): void {
+  const points = pathPolyline(path);
+  if (points.length === 0 || !Number.isFinite(zoom) || zoom <= 0) {
+    return;
+  }
+
+  const radius = (highlighted ? PATH_DOT_RADIUS_CSS + 1.15 : PATH_DOT_RADIUS_CSS) / zoom;
+  const spacing = PATH_DOT_SPACING_CSS / zoom;
+  let nextDotAt = 0;
+  let distanceBeforeSegment = 0;
+  let dots = 0;
+
+  const drawDot = (x: number, y: number) => {
+    if (dots >= MAX_DOTS_PER_PATH) {
+      return;
+    }
+    graphic.circle(x, y, radius).fill({ color, alpha });
+    dots += 1;
+  };
+
+  if (points.length === 1) {
+    drawDot(points[0][0], points[0][1]);
+    return;
+  }
+
+  for (let index = 1; index < points.length && dots < MAX_DOTS_PER_PATH; index += 1) {
+    const start = points[index - 1];
+    const end = points[index];
+    const deltaX = end[0] - start[0];
+    const deltaY = end[1] - start[1];
+    const segmentLength = Math.hypot(deltaX, deltaY);
+    if (segmentLength === 0) {
+      continue;
+    }
+    const segmentEnd = distanceBeforeSegment + segmentLength;
+    while (nextDotAt <= segmentEnd && dots < MAX_DOTS_PER_PATH) {
+      const along = Math.max(0, nextDotAt - distanceBeforeSegment) / segmentLength;
+      drawDot(start[0] + deltaX * along, start[1] + deltaY * along);
+      nextDotAt += spacing;
+    }
+    distanceBeforeSegment = segmentEnd;
+  }
+
+  // Very short paths still need a visible endpoint rather than one isolated dot.
+  if (dots === 1) {
+    const end = points.at(-1)!;
+    drawDot(end[0], end[1]);
+  }
+}
 
 function createStrokeRenderable(stroke: TerrainStroke): Container | Graphics {
   if (stroke.mode === 'erase') {

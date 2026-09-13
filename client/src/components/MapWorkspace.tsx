@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Biome, WorldPoint } from '../../../shared/domain';
+import type { Biome, PathGeometryType, WorldPoint } from '../../../shared/domain';
 import { MapMenu } from './MapMenu';
 import { MapToolbar } from './MapToolbar';
 import { MapCanvas, type MapCanvasHandle } from './map/MapCanvas';
@@ -17,6 +17,13 @@ export function MapWorkspace() {
   const [biome, setBiome] = useState<Biome>(DEFAULT_BIOME);
   const [brushWidth, setBrushWidth] = useState(DEFAULT_BRUSH_WIDTH);
   const [gridVisible, setGridVisible] = useState(false);
+  const [pathsVisible, setPathsVisible] = useState(true);
+  const [pathGeometryType, setPathGeometryType] = useState<PathGeometryType>('freehand');
+  const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedPathId(null);
+  }, [mapSession.currentMap?.id]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -33,6 +40,12 @@ export function MapWorkspace() {
           break;
         case 'e':
           setTool('eraser');
+          break;
+        case 'p':
+          setTool('path');
+          break;
+        case 'v':
+          setTool('select');
           break;
         default:
           break;
@@ -52,11 +65,20 @@ export function MapWorkspace() {
         biome={biome}
         brushWidth={brushWidth}
         strokes={mapSession.strokes}
+        paths={mapSession.paths}
+        pathsVisible={pathsVisible}
+        pathGeometryType={pathGeometryType}
+        selectedPathId={selectedPathId}
         gridVisible={gridVisible}
+        mapId={mapSession.currentMap?.id ?? null}
         interactionEnabled={mapSession.loadState === 'ready' && !mapSession.mapActionBusy}
         onCameraChange={mapSession.setCamera}
         onCursorWorldChange={setCursorWorld}
         onStrokeComplete={mapSession.saveStroke}
+        onPathComplete={mapSession.savePath}
+        onPathUpdate={mapSession.savePathUpdate}
+        onPathDelete={mapSession.removePath}
+        onPathSelectionChange={setSelectedPathId}
       />
 
       <MapMenu
@@ -85,6 +107,16 @@ export function MapWorkspace() {
         >
           Grid
         </button>
+        <button
+          type="button"
+          aria-pressed={pathsVisible}
+          onClick={() => {
+            setPathsVisible((visible) => !visible);
+            setSelectedPathId(null);
+          }}
+        >
+          Paths
+        </button>
         {mapSession.currentMap !== null && (
           <span className="map-controls__map-name">Map: {mapSession.currentMap.name}</span>
         )}
@@ -94,9 +126,13 @@ export function MapWorkspace() {
         tool={tool}
         biome={biome}
         brushWidth={brushWidth}
+        pathGeometryType={pathGeometryType}
+        hasSelectedPath={selectedPathId !== null}
         onToolChange={setTool}
         onBiomeChange={setBiome}
         onBrushWidthChange={setBrushWidth}
+        onPathGeometryTypeChange={setPathGeometryType}
+        onDeleteSelectedPath={() => canvasRef.current?.deleteSelectedPath()}
       />
 
       <aside className="north-indicator" aria-label="North points up">
@@ -109,7 +145,7 @@ export function MapWorkspace() {
         <div>Cursor world X: {formatCoordinate(cursorWorld?.[0])}</div>
         <div>Cursor world Y: {formatCoordinate(cursorWorld?.[1])}</div>
         <div>Strokes: {mapSession.strokes.length}</div>
-        {mapSession.pendingStrokeCount > 0 && <div>Saving…</div>}
+        {mapSession.pendingStrokeCount + mapSession.pendingPathMutationCount > 0 && <div>Saving…</div>}
         {mapSession.saveError !== null && <div className="map-debug__error">Save failed: {mapSession.saveError}</div>}
       </output>
 

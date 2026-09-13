@@ -73,7 +73,7 @@ button {
 
 .map-controls {
   top: 14px;
-  left: 14px;
+  left: 58px;
   display: flex;
   gap: 4px;
   padding: 4px;
@@ -100,6 +100,200 @@ button {
 .map-controls button:focus-visible {
   outline: 2px solid #657157;
   outline-offset: 1px;
+}
+
+.map-menu {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  left: 14px;
+}
+
+.map-menu__toggle,
+.map-menu__panel {
+  color: #454940;
+  background: rgb(244 242 235 / 88%);
+  border: 1px solid rgb(80 84 73 / 18%);
+  box-shadow: 0 1px 3px rgb(42 45 39 / 8%);
+  backdrop-filter: blur(6px);
+}
+
+.map-menu__toggle {
+  display: grid;
+  width: 36px;
+  height: 34px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 8px;
+  place-items: center;
+}
+
+.map-menu__toggle:hover,
+.map-menu__toggle[aria-expanded='true'] {
+  background: rgb(232 232 221 / 94%);
+}
+
+.map-menu__toggle:focus-visible,
+.map-menu button:focus-visible,
+.map-menu input:focus-visible {
+  outline: 2px solid #657157;
+  outline-offset: 1px;
+}
+
+.map-menu__panel {
+  position: absolute;
+  top: 42px;
+  left: 0;
+  width: min(300px, calc(100vw - 28px));
+  padding: 7px;
+  border-radius: 9px;
+}
+
+.map-menu__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 3px 7px 7px;
+  font-size: 13px;
+}
+
+.map-menu button {
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+}
+
+.map-menu button:hover:not(:disabled) {
+  background: rgb(82 87 74 / 10%);
+}
+
+.map-menu button:disabled {
+  color: #8b8e87;
+  cursor: wait;
+}
+
+.map-menu__header button {
+  padding: 5px 7px;
+  color: #405039;
+  background: rgb(102 123 82 / 12%);
+}
+
+.map-menu__list {
+  display: grid;
+  gap: 2px;
+  max-height: min(50vh, 360px);
+  overflow-y: auto;
+}
+
+.map-menu__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border-radius: 5px;
+}
+
+.map-menu__row--selected {
+  background: rgb(102 123 82 / 13%);
+}
+
+.map-menu__map-button {
+  display: grid;
+  grid-template-columns: 17px minmax(0, 1fr);
+  gap: 4px;
+  min-width: 0;
+  padding: 7px 5px;
+  text-align: left;
+}
+
+.map-menu__map-button span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-menu__selection {
+  color: #526645;
+  font-weight: 700;
+}
+
+.map-menu__actions-toggle {
+  width: 26px;
+  height: 28px;
+  margin-right: 2px;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.map-menu__actions {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 2px;
+  padding: 0 4px 4px 26px;
+}
+
+.map-menu__actions button {
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.map-menu__delete {
+  color: #87443a !important;
+}
+
+.map-menu__form {
+  display: grid;
+  gap: 10px;
+  padding: 4px;
+}
+
+.map-menu__form h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.map-menu__form p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.map-menu__form label {
+  display: grid;
+  gap: 5px;
+  font-size: 11px;
+}
+
+.map-menu__form input {
+  min-width: 0;
+  padding: 6px 7px;
+  color: inherit;
+  font: inherit;
+  background: rgb(255 255 255 / 52%);
+  border: 1px solid rgb(80 84 73 / 24%);
+  border-radius: 4px;
+}
+
+.map-menu__form footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.map-menu__form footer button {
+  padding: 5px 7px;
+  background: rgb(102 123 82 / 12%);
+}
+
+.map-menu__error {
+  margin: 7px 5px 2px;
+  color: #87443a;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .map-controls__map-name {

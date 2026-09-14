@@ -56,6 +56,8 @@ export function CoordinateNavigator({ onGo, onComplete }: CoordinateNavigatorPro
       <button
         className="utility-control"
         type="button"
+        aria-label="Go to Valheim coordinates. In-game, enable the console, press F5, type `pos`, and use the displayed X and Z coordinates"
+        title="Go to Valheim coordinates. In-game, enable the console, press F5, type `pos`, and use the displayed X and Z coordinates"
         aria-expanded={open}
         aria-haspopup="dialog"
         onClick={() => {

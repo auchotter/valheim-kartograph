@@ -969,7 +969,7 @@ export function useMapSession() {
     }
   }, [beginMarkerMutation, finishMarkerMutation]);
 
-  const saveMarkerUpdate = useCallback(async (draft: Marker): Promise<void> => {
+  const saveMarkerUpdate = useCallback(async (draft: Marker): Promise<boolean> => {
     const map = currentMapRef.current;
     const previous = objectsRef.current.find(
       (object): object is Marker => object.id === draft.id && object.objectType === 'marker',
@@ -982,7 +982,7 @@ export function useMapSession() {
       previous.objectVersion < 1 ||
       !beginMarkerMutation(map.id, draft.id)
     ) {
-      return;
+      return false;
     }
 
     const mapId = map.id;
@@ -1002,13 +1002,14 @@ export function useMapSession() {
         draft,
       );
       if (currentMapRef.current?.id !== mapId) {
-        return;
+        return true;
       }
       setObjects((current) => replaceObject(current, result.object));
       updateCurrentMapRevision(mapId, result.mapRevision, result.object.orderKey, result.object.updatedAt, currentMapRef, setCurrentMap, localRevisionRef);
+      return true;
     } catch (error) {
       if (currentMapRef.current?.id !== mapId) {
-        return;
+        return false;
       }
       if (error instanceof ApiClientError && error.status === 409) {
         await refreshObjectsAfterConflict(mapId, currentMapRef, setCurrentMap, setObjects, setSaveError, localRevisionRef);
@@ -1016,6 +1017,7 @@ export function useMapSession() {
         setObjects((current) => replaceObject(current, previous));
         setSaveError(toMessage(error, 'Marker update failed.'));
       }
+      return false;
     } finally {
       finishMarkerMutation(mapId, draft.id);
       pendingOperationIdsRef.current.delete(clientOperationId);

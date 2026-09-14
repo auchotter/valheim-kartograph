@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { Container, Graphics } from 'pixi.js';
 import { MapLayer, type Marker } from '../shared/domain.ts';
 import {
@@ -14,8 +14,11 @@ import {
 } from '../client/src/lib/markerIcons.ts';
 import {
   hitTestMarker,
+  MARKER_CAPTION_BASE_FONT_SIZE_CSS,
+  markerCaptionFontSizeCss,
   markerCaptionOffsetCss,
   markerCaptionRenderedFontSizeCss,
+  markerCaptionScale,
   effectiveMarkerSizeScale,
   effectiveMarkerVisualDiameterCss,
   markerHitRadiusWorld,
@@ -91,6 +94,15 @@ assertVector(vegvisirArrowVector(270, 10), [-10, 0]);
 assert.equal(normaliseMarkerCaption('  Home  '), 'Home');
 assert.equal(normaliseMarkerCaption('   '), null);
 
+assertClose(markerCaptionScale(1, 1), 1);
+assertClose(markerCaptionScale(2, 1), 1.35);
+assertClose(markerCaptionScale(3, 1), 1.7);
+assertClose(markerCaptionScale(0.5, 1), 0.825);
+assertClose(markerCaptionFontSizeCss(2, 1), MARKER_CAPTION_BASE_FONT_SIZE_CSS * 1.35);
+// At low zoom, a 3× marker is adaptively moderated to 1.4×, so its caption
+// follows that same effective scale rather than the stored 3× value.
+assertClose(markerCaptionScale(3, 0.1), 1.14);
+
 // Placement is a local single-shot state machine, separate from persisted markers.
 assert.equal(toggleArmedMarkerType(null, 'home'), 'home');
 assert.equal(toggleArmedMarkerType('home', 'home'), null);
@@ -131,6 +143,39 @@ const workspaceSource = readFileSync(
 );
 assert.match(workspaceSource, /clearMarkerInteraction/);
 assert.match(workspaceSource, /setArmedMarkerType\(null\)/);
+
+const rendererSource = readFileSync(
+  new URL('../client/src/components/map/PixiMapRenderer.ts', import.meta.url),
+  'utf8',
+);
+const inspectorSource = readFileSync(
+  new URL('../client/src/components/MarkerInspector.tsx', import.meta.url),
+  'utf8',
+);
+const fontSource = readFileSync(
+  new URL('../client/src/lib/markerCaptionFont.ts', import.meta.url),
+  'utf8',
+);
+const stylesSource = readFileSync(new URL('../client/src/styles.css', import.meta.url), 'utf8');
+assert.match(rendererSource, /MARKER_CAPTION_FONT_FAMILY/);
+assert.match(rendererSource, /wordWrap: false/);
+assert.match(rendererSource, /trim: false/);
+assert.match(rendererSource, /padding: 2/);
+assert.doesNotMatch(rendererSource, /wordWrapWidth/);
+assert.match(rendererSource, /markerCaptionFontSizeCss/);
+assert.match(fontSource, /document\.fonts\s*\.load/);
+assert.match(fontSource, /catch\(\(\) => false\)/);
+assert.match(stylesSource, /font-family: ValheimNorse/);
+assert.match(stylesSource, /NorseBold\.otf/);
+assert.match(stylesSource, /marker-inspector__caption-input/);
+assert.equal(existsSync(new URL('../client/src/assets/fonts/NorseBold.otf', import.meta.url)), true);
+assert.match(inspectorSource, /document\.addEventListener\('pointerdown', commitOutsideCaption, true\)/);
+assert.match(inspectorSource, /captionCommitInFlightRef/);
+assert.match(inspectorSource, /event\.key === 'Enter'/);
+assert.match(inspectorSource, /event\.key === 'Escape'/);
+assert.match(inspectorSource, /name === marker\.name/);
+assert.match(inspectorSource, /if \(saved\) \{[\s\S]*onCaptionDraftChange\(marker\.id, null\)/);
+assert.match(workspaceSource, /markerCaptionDrafts/);
 
 const redCross = markerSvgMarkup('red_cross');
 assert.match(redCross, /M17 17 47 47M47 17 17 47/);

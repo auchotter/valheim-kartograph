@@ -22,10 +22,16 @@ import {
 import { orderTerrainStrokes, resolveVisibleBiomeAtPointInOrder } from '../../lib/terrainVisibility';
 import {
   effectiveMarkerVisualDiameterCss,
+  markerCaptionFontSizeCss,
   markerCaptionOffsetCss,
   markerIconLocalScale,
   markerRootWorldScale,
 } from '../../lib/markerGeometry';
+import {
+  loadMarkerCaptionFont,
+  MARKER_CAPTION_FONT_FALLBACK,
+  MARKER_CAPTION_FONT_FAMILY,
+} from '../../lib/markerCaptionFont';
 import type { Camera } from '../../lib/camera';
 
 const PARCHMENT_COLOR = 0xe8e1d1;
@@ -200,6 +206,15 @@ export class PixiMapRenderer {
     this.rebuildPreview();
     this.rebuildPaths();
     this.rebuildMarkers();
+    void loadMarkerCaptionFont().then((loaded) => {
+      if (loaded && this.initialized && !this.destroyed) {
+        // Text created before FontFace completion used fallback metrics. Rebuild
+        // this retained presentation layer once so final caption bounds use
+        // the bundled Norse face.
+        this.rebuildMarkers();
+        this.requestStageRender();
+      }
+    });
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
     this.windowResizeListener = () => this.resize();
@@ -870,9 +885,14 @@ function createMarkerRenderable(marker: MarkerVisual, zoom: number): { root: Con
       text: marker.name,
       style: {
         fill: 0x3f3a33,
-        fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
-        fontSize: 12,
-        fontWeight: '500',
+        fontFamily: `${MARKER_CAPTION_FONT_FAMILY}, ${MARKER_CAPTION_FONT_FALLBACK}`,
+        fontSize: markerCaptionFontSizeCss(marker.sizeScale, zoom),
+        fontWeight: 'normal',
+        // Captions are always one natural-width line. Padding protects Norse
+        // glyph overhangs without introducing a fixed texture/crop width.
+        padding: 2,
+        trim: false,
+        wordWrap: false,
       },
     });
     caption.anchor.set(0.5, 0);
@@ -892,6 +912,7 @@ function applyMarkerVisualTransform(visual: Container, marker: Pick<Marker, 'siz
   }
   const caption = visual.children[1];
   if (caption instanceof Text) {
+    caption.style.fontSize = markerCaptionFontSizeCss(marker.sizeScale, zoom);
     caption.position.set(0, markerCaptionOffsetCss(marker.sizeScale, zoom));
   }
 }

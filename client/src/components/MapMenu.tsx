@@ -125,8 +125,8 @@ export function MapMenu({
       <button
         type="button"
         className="map-menu__toggle"
-        title={currentMapName}
-        aria-label={`Open map menu for ${currentMapName}`}
+        title="Open the map library and manage maps"
+        aria-label="Open the map library and manage maps"
         aria-expanded={open}
         aria-controls="map-management-panel"
         onClick={() => {

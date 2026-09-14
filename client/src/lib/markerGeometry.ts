@@ -6,6 +6,11 @@ import {
   normaliseDirectionDegrees,
 } from './markerIcons';
 
+export const MARKER_CAPTION_BASE_FONT_SIZE_CSS = 12;
+const MARKER_CAPTION_SCALE_FACTOR = 0.35;
+const MARKER_CAPTION_MIN_SCALE = 0.8;
+const MARKER_CAPTION_MAX_SCALE = 1.7;
+
 export function markerVisualDiameterCss(sizeScale: number): number {
   return MARKER_BASE_SIZE_CSS * clampMarkerSizeScale(sizeScale);
 }
@@ -49,6 +54,22 @@ export function markerRenderedScreenSizeCss(sizeScale: number, zoom: number): nu
 /** Caption coordinates live in the marker root's screen-local coordinate space. */
 export function markerCaptionOffsetCss(sizeScale: number, zoom = 1): number {
   return effectiveMarkerVisualDiameterCss(sizeScale, zoom) / 2 + 7;
+}
+
+/**
+ * Captions follow the same adaptive visual marker scale, but deliberately more
+ * gently than the icon itself so large markers do not dominate the map.
+ */
+export function markerCaptionScale(sizeScale: number, zoom = 1): number {
+  const effectiveScale = effectiveMarkerSizeScale(sizeScale, zoom);
+  return Math.min(
+    MARKER_CAPTION_MAX_SCALE,
+    Math.max(MARKER_CAPTION_MIN_SCALE, 1 + (effectiveScale - 1) * MARKER_CAPTION_SCALE_FACTOR),
+  );
+}
+
+export function markerCaptionFontSizeCss(sizeScale: number, zoom = 1): number {
+  return MARKER_CAPTION_BASE_FONT_SIZE_CSS * markerCaptionScale(sizeScale, zoom);
 }
 
 export function markerCaptionRenderedFontSizeCss(fontSize: number, zoom: number): number {

@@ -1,3 +1,11 @@
+@font-face {
+  font-family: ValheimNorse;
+  src: url('./assets/fonts/NorseBold.otf') format('opentype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
 :root {
   color: #30332f;
   background: #d8d5cb;
@@ -788,6 +796,10 @@ button {
   background: rgb(255 255 255 / 52%);
   border: 1px solid rgb(80 84 73 / 24%);
   border-radius: 4px;
+}
+
+.marker-inspector__caption-input {
+  font-family: ValheimNorse, Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
 .marker-inspector__row {

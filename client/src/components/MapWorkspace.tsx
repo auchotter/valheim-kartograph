@@ -35,6 +35,7 @@ export function MapWorkspace() {
   const [armedMarkerType, setArmedMarkerType] = useState<string | null>(null);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [markerPreview, setMarkerPreview] = useState<Marker | null>(null);
+  const [markerCaptionDrafts, setMarkerCaptionDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     writeMapUiPreferences({ pathOpacity, protectEnabled, gridEnabled: gridVisible });
@@ -46,6 +47,7 @@ export function MapWorkspace() {
     setSelectedMarkerId(cleared.selectedMarkerId);
     setMarkerPreview(null);
     setArmedMarkerType(cleared.armedMarkerType);
+    setMarkerCaptionDrafts({});
   }, [mapSession.currentMap?.id]);
 
   const changeTool = useCallback((nextTool: MapTool) => {
@@ -88,20 +90,34 @@ export function MapWorkspace() {
   }, []);
 
   const updateMarker = useCallback(
-    (marker: Marker) => {
+    async (marker: Marker): Promise<boolean> => {
       setMarkerPreview(null);
-      void mapSession.saveMarkerUpdate(marker);
+      return mapSession.saveMarkerUpdate(marker);
     },
     [mapSession.saveMarkerUpdate],
   );
+
+  const updateMarkerCaptionDraft = useCallback((markerId: string, draft: string | null) => {
+    setMarkerCaptionDrafts((current) => {
+      if (draft === null) {
+        if (!(markerId in current)) {
+          return current;
+        }
+        const { [markerId]: _discarded, ...remaining } = current;
+        return remaining;
+      }
+      return current[markerId] === draft ? current : { ...current, [markerId]: draft };
+    });
+  }, []);
 
   const deleteMarker = useCallback(
     (markerId: string) => {
       setSelectedMarkerId(null);
       setMarkerPreview(null);
+      updateMarkerCaptionDraft(markerId, null);
       void mapSession.removeMarker(markerId);
     },
-    [mapSession.removeMarker],
+    [mapSession.removeMarker, updateMarkerCaptionDraft],
   );
 
   const selectedMarker = mapSession.markers.find((marker) => marker.id === selectedMarkerId) ?? null;
@@ -171,7 +187,8 @@ export function MapWorkspace() {
         <button
           type="button"
           className="utility-control"
-          aria-label={pathOpacityLabel(pathOpacity)}
+          aria-label="Adjust path visibility"
+          title="Adjust path visibility"
           onClick={() => { setPathOpacity((opacity) => nextPathOpacity(opacity)); closeOverflow(); }}
         >
           {pathOpacityLabel(pathOpacity)}
@@ -185,6 +202,8 @@ export function MapWorkspace() {
           type="button"
           className="utility-control"
           aria-pressed={protectEnabled}
+          aria-label="Prevent markers and paths from being selected while using Pan"
+          title="Prevent markers and paths from being selected while using Pan"
           onClick={() => {
             const next = !protectEnabled;
             setProtectEnabled(next);
@@ -330,7 +349,7 @@ export function MapWorkspace() {
             onDuplicateMap={mapSession.duplicateAndSelectMap}
             onDeleteMap={mapSession.deleteExistingMap}
           />
-          <aside className="north-indicator" aria-label="North points up">
+          <aside className="north-indicator" aria-label="Indicates true north" title="Indicates true north">
             <span aria-hidden="true">↑</span>
             <span>N</span>
           </aside>
@@ -348,6 +367,8 @@ export function MapWorkspace() {
             selectedMarker.objectVersion < 1 ||
             mapSession.pendingMarkerIds.has(selectedMarker.id)
           }
+          captionDraft={markerCaptionDrafts[selectedMarker.id]}
+          onCaptionDraftChange={updateMarkerCaptionDraft}
           onUpdate={updateMarker}
           onPreview={setMarkerPreview}
           onDelete={deleteMarker}

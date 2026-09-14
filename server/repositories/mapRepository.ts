@@ -64,6 +64,7 @@ interface OperationRow {
   payload_json: string;
   created_at: string;
   undo_of_operation_id: string | null;
+  redo_of_operation_id: string | null;
 }
 
 const objectSelect = `
@@ -264,13 +265,44 @@ export class MapRepository {
     return rows.map(toMapOperation);
   }
 
+  listRedoCandidates(mapId: string, actorId: string, limit: number): MapOperation[] {
+    const rows = this.database
+      .prepare(
+        `SELECT operation.*
+         FROM map_operations AS operation
+         WHERE operation.map_id = ?
+           AND operation.actor_id = ?
+           AND operation.undo_of_operation_id IS NOT NULL
+           AND operation.operation_type IN ('object.create', 'object.update', 'object.delete', 'object.restore')
+           AND NOT EXISTS (
+             SELECT 1
+             FROM map_operations AS redo
+             WHERE redo.redo_of_operation_id = operation.id
+           )
+           AND NOT EXISTS (
+             SELECT 1
+             FROM map_operations AS branch_edit
+             WHERE branch_edit.map_id = operation.map_id
+               AND branch_edit.actor_id = operation.actor_id
+               AND branch_edit.undo_of_operation_id IS NULL
+               AND branch_edit.redo_of_operation_id IS NULL
+               AND branch_edit.operation_type IN ('object.create', 'object.update', 'object.delete', 'object.restore')
+               AND branch_edit.map_revision > operation.map_revision
+           )
+         ORDER BY operation.map_revision DESC
+         LIMIT ?`,
+      )
+      .all(mapId, actorId, limit) as OperationRow[];
+    return rows.map(toMapOperation);
+  }
+
   insertOperation(operation: MapOperation): void {
     this.database
       .prepare(
         `INSERT INTO map_operations (
           id, map_id, map_revision, actor_id, client_operation_id, operation_type,
-          object_id, base_object_version, payload_json, created_at, undo_of_operation_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          object_id, base_object_version, payload_json, created_at, undo_of_operation_id, redo_of_operation_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         operation.id,
@@ -284,6 +316,7 @@ export class MapRepository {
         JSON.stringify(operation.payload),
         operation.createdAt,
         operation.undoOfOperationId,
+        operation.redoOfOperationId,
       );
   }
 
@@ -432,6 +465,7 @@ function toMapOperation(row: OperationRow): MapOperation {
     payload: JSON.parse(row.payload_json) as MapOperation['payload'],
     createdAt: row.created_at,
     undoOfOperationId: row.undo_of_operation_id,
+    redoOfOperationId: row.redo_of_operation_id,
   };
 }
 

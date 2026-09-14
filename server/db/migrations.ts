@@ -221,4 +221,18 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    name: 'add_redo_operation_links',
+    up(database) {
+      database.exec(`
+        ALTER TABLE map_operations
+          ADD COLUMN redo_of_operation_id TEXT REFERENCES map_operations(id);
+
+        CREATE UNIQUE INDEX map_operations_redo_target_unique
+          ON map_operations(redo_of_operation_id)
+          WHERE redo_of_operation_id IS NOT NULL;
+      `);
+    },
+  },
 ];

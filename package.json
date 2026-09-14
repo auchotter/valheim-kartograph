@@ -22,6 +22,8 @@
     "verify:realtime": "tsx scripts/verify-realtime.ts",
     "verify:hardening": "tsx scripts/verify-hardening.ts",
     "verify:undo": "tsx scripts/verify-undo.ts",
+    "verify:redo": "tsx scripts/verify-redo.ts",
+    "verify:ui-preferences": "tsx scripts/verify-ui-preferences.ts",
     "verify:coordinates": "tsx scripts/verify-valheim-coordinates.ts",
     "verify:terrain-memory": "tsx scripts/verify-terrain-memory.ts",
     "verify:resize": "tsx scripts/verify-resize.ts",

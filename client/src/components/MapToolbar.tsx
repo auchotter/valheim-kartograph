@@ -1,8 +1,11 @@
 import type { Biome, PathGeometryType } from '../../../shared/domain';
 import { BIOMES, biomeStyle } from '../lib/biomeStyles';
 import type { MapTool } from '../state/mapTool';
+import { ResponsiveOverflowBar, type ResponsiveOverflowItem } from './ResponsiveOverflowBar';
+import type { HudLayoutMode } from '../lib/hudLayout';
 
 interface MapToolbarProps {
+  layoutMode: HudLayoutMode;
   tool: MapTool;
   biome: Biome;
   brushWidth: number;
@@ -17,6 +20,7 @@ interface MapToolbarProps {
 }
 
 export function MapToolbar({
+  layoutMode,
   tool,
   biome,
   brushWidth,
@@ -30,22 +34,24 @@ export function MapToolbar({
   onDeleteSelectedPath,
 }: MapToolbarProps) {
   const showsBrushControls = tool === 'biome_brush' || tool === 'eraser';
+  const toolItems: ResponsiveOverflowItem[] = [
+    toolItem('pan', 'Pan', 'H'),
+    toolItem('biome_brush', 'Biome Brush', 'B'),
+    toolItem('eraser', 'Eraser', 'E'),
+    toolItem('path', 'Path', 'P'),
+    toolItem('marker', 'Marker', 'M'),
+    toolItem('select', 'Select', 'V'),
+  ].map((item) => ({
+    ...item,
+    active: tool === item.tool,
+    render: ({ closeOverflow }) => (
+      <ToolButton active={tool === item.tool} label={item.label} shortcut={item.shortcut} onClick={() => { onToolChange(item.tool); closeOverflow(); }} />
+    ),
+  }));
 
   return (
     <section className="map-toolbar" aria-label="Map drawing tools">
-      <div className="map-toolbar__tools" role="group" aria-label="Active tool">
-        <ToolButton active={tool === 'pan'} label="Pan" shortcut="H" onClick={() => onToolChange('pan')} />
-        <ToolButton
-          active={tool === 'biome_brush'}
-          label="Biome Brush"
-          shortcut="B"
-          onClick={() => onToolChange('biome_brush')}
-        />
-        <ToolButton active={tool === 'eraser'} label="Eraser" shortcut="E" onClick={() => onToolChange('eraser')} />
-        <ToolButton active={tool === 'path'} label="Path" shortcut="P" onClick={() => onToolChange('path')} />
-        <ToolButton active={tool === 'marker'} label="Marker" shortcut="M" onClick={() => onToolChange('marker')} />
-        <ToolButton active={tool === 'select'} label="Select" shortcut="V" onClick={() => onToolChange('select')} />
-      </div>
+      <ResponsiveOverflowBar ariaLabel="Active tool" className="map-toolbar__tools" items={toolItems} mode={layoutMode} group="tools" />
 
       {tool === 'path' && (
         <label className="map-toolbar__field">
@@ -109,6 +115,10 @@ export function MapToolbar({
       )}
     </section>
   );
+}
+
+function toolItem(tool: MapTool, label: string, shortcut: string) {
+  return { id: tool, tool, label, shortcut };
 }
 
 function ToolButton({

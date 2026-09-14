@@ -19,7 +19,9 @@ import {
   PATH_LIGHT_COLOR,
 } from '../client/src/lib/pathVisualStyle.ts';
 import { resolveVisibleBiomeAtPoint } from '../client/src/lib/terrainVisibility.ts';
-import { initialPointerGesture } from '../client/src/lib/pointerGesture.ts';
+import { initialPointerGesture, shouldClearPanSelection } from '../client/src/lib/pointerGesture.ts';
+import { nextPathOpacity, pathOpacityLabel } from '../client/src/lib/pathVisibility.ts';
+import { HUD_WIDE_MIN_PX, HUD_MEDIUM_MIN_PX, hudLayoutMode, partitionHudItems } from '../client/src/lib/hudLayout.ts';
 
 function path(overrides: Partial<Path>): Path {
   return {
@@ -104,6 +106,46 @@ for (const biome of ['meadows', 'black_forest', 'swamp', 'plains', 'mistlands', 
   assert.equal(pathColorForVisibleBiome(biome), PATH_LIGHT_COLOR);
 }
 
+assert.equal(nextPathOpacity(1), 0.5);
+assert.equal(nextPathOpacity(0.5), 0);
+assert.equal(nextPathOpacity(0), 1);
+assert.equal(pathOpacityLabel(1), 'Paths 100%');
+assert.equal(pathOpacityLabel(0.5), 'Paths 50%');
+assert.equal(pathOpacityLabel(0), 'Paths 0%');
+
+const utilities = ['reset-view', 'zoom-to-one', 'undo', 'redo', 'grid', 'paths', 'protect', 'coordinate'].map((id) => ({ id }));
+const tools = ['pan', 'biome_brush', 'eraser', 'path', 'marker', 'select'].map((id) => ({ id }));
+// Exercise shrinking, threshold boundaries and widening; stateful controls
+// must retain the same objects/handlers in both partitions.
+for (const width of [2048, 1600, 1440, 1439, 1200, 900, 800, 799, 700, 320, 700, 900, 1600, 2048]) {
+  const mode = hudLayoutMode(width >= HUD_WIDE_MIN_PX, width >= HUD_MEDIUM_MIN_PX);
+  for (const [group, items] of [['utility', utilities], ['tools', tools]] as const) {
+    const { visible, overflow } = partitionHudItems(items, mode, group);
+    assert.equal(visible.length + overflow.length, items.length);
+    assert.equal(new Set([...visible, ...overflow]).size, items.length);
+    for (const item of items) {
+      assert.equal(Number(visible.includes(item)) + Number(overflow.includes(item)), 1);
+    }
+    if (mode === 'wide' || (mode === 'medium' && group === 'tools')) {
+      assert.deepEqual(overflow, []);
+      assert.deepEqual(visible, items, 'all controls restore in original order');
+    }
+    if (mode === 'medium' && group === 'utility') {
+      assert.deepEqual(overflow.map((item) => item.id), ['coordinate']);
+    }
+  }
+}
+assert.equal(hudLayoutMode(false, false), 'narrow');
+assert.equal(hudLayoutMode(false, true), 'medium');
+assert.equal(hudLayoutMode(true, true), 'wide');
+let opacity = 1 as 1 | 0.5 | 0;
+const statefulControl = { id: 'paths', action: () => { opacity = nextPathOpacity(opacity); } };
+for (const mode of ['wide', 'narrow', 'medium'] as const) {
+  const partition = partitionHudItems([statefulControl], mode, 'utility');
+  [...partition.visible, ...partition.overflow][0].action();
+}
+assert.equal(opacity, 1, 'responsive movement retains the existing opacity handler');
+
 const terrainHistory: BiomeStroke[] = [
   stroke({ orderKey: 1, mode: 'paint', biome: 'meadows' }),
   stroke({ orderKey: 2, mode: 'paint', biome: 'swamp' }),
@@ -126,6 +168,15 @@ for (const tool of ['biome_brush', 'eraser', 'path', 'marker', 'select'] as cons
     `middle mouse must pan before ${tool}`,
   );
 }
+assert.equal(initialPointerGesture({ button: 0, spaceHeld: false, tool: 'pan', markerPlacementArmed: false, pathCreationArmed: false }), 'pan');
+assert.equal(initialPointerGesture({ button: 0, spaceHeld: false, tool: 'pan', markerPlacementArmed: false, pathCreationArmed: false, panObjectInteraction: true }), 'select');
+assert.equal(initialPointerGesture({ button: 0, spaceHeld: true, tool: 'pan', markerPlacementArmed: false, pathCreationArmed: false, panObjectInteraction: true }), 'pan');
+assert.equal(shouldClearPanSelection({ tool: 'pan', protectEnabled: false, button: 0, spaceHeld: false, objectHit: false }), true);
+assert.equal(shouldClearPanSelection({ tool: 'pan', protectEnabled: false, button: 0, spaceHeld: false, objectHit: true }), false);
+assert.equal(shouldClearPanSelection({ tool: 'pan', protectEnabled: true, button: 0, spaceHeld: false, objectHit: false }), false);
+assert.equal(shouldClearPanSelection({ tool: 'pan', protectEnabled: false, button: 0, spaceHeld: true, objectHit: false }), false);
+assert.equal(shouldClearPanSelection({ tool: 'pan', protectEnabled: false, button: 1, spaceHeld: false, objectHit: false }), true);
+assert.equal(shouldClearPanSelection({ tool: 'pan', protectEnabled: false, button: 1, spaceHeld: false, objectHit: true }), false);
 assert.equal(initialPointerGesture({ button: 0, spaceHeld: false, tool: 'biome_brush', markerPlacementArmed: false, pathCreationArmed: false }), 'biome-draw');
 assert.equal(initialPointerGesture({ button: 0, spaceHeld: false, tool: 'eraser', markerPlacementArmed: false, pathCreationArmed: false }), 'erase');
 assert.equal(initialPointerGesture({ button: 0, spaceHeld: false, tool: 'path', markerPlacementArmed: false, pathCreationArmed: true }), 'path-draw');
@@ -136,6 +187,8 @@ const rendererSource = readFileSync(
   new URL('../client/src/components/map/PixiMapRenderer.ts', import.meta.url),
   'utf8',
 );
+const workspaceSource = readFileSync(new URL('../client/src/components/MapWorkspace.tsx', import.meta.url), 'utf8');
+const stylesSource = readFileSync(new URL('../client/src/styles.css', import.meta.url), 'utf8');
 const dottedPathStart = rendererSource.indexOf('function drawDottedPath');
 const strokeStart = rendererSource.indexOf('function createStrokeRenderable', dottedPathStart);
 assert.notEqual(dottedPathStart, -1);
@@ -146,6 +199,14 @@ assert.match(dottedPathSource, /pathColorForVisibleBiome/);
 assert.match(dottedPathSource, /radiusWorld/);
 assert.doesNotMatch(dottedPathSource, /HALO|halo|outline|Filter|RenderTexture/);
 assert.doesNotMatch(dottedPathSource, /Filter|RenderTexture/);
+assert.match(rendererSource, /setPathsOpacity/);
+assert.match(rendererSource, /pathShapes\.alpha = this\.pathOpacity/);
+assert.match(rendererSource, /pathSelection/);
+assert.match(canvasSourceForGestures(), /protectEnabledRef/);
+assert.match(canvasSourceForGestures(), /panObjectHit/);
+assert.match(canvasSourceForGestures(), /panObjectInteraction: panObjectHit/);
+assert.match(canvasSourceForGestures(), /shouldClearPanSelection/);
+assert.match(canvasSourceForGestures(), /selectMarker\(null\);[\s\S]*selectPath\(null\)/);
 assert.match(canvasSourceForGestures(), /activePointerGestureRef/);
 assert.match(canvasSourceForGestures(), /cancelActivePointerGesture/);
 assert.match(canvasSourceForGestures(), /onToolChange\('pan'\)/);
@@ -155,6 +216,39 @@ assert.match(canvasSourceForGestures(), /selectPath\(id\)/);
 assert.match(canvasSourceForGestures(), /pathCreationArmedRef\.current = false/);
 assert.match(canvasSourceForGestures(), /if \(currentTool === 'path'\)/);
 assert.match(canvasSourceForGestures(), /selectPath\(null\);[\s\S]*onToolChange\('pan'\)/);
+assert.match(workspaceSource, /className="map-top-hud"/);
+assert.match(workspaceSource, /className="map-top-hud__utility"/);
+assert.match(workspaceSource, /className="map-top-hud__tools"/);
+assert.match(workspaceSource, /className="map-top-hud__right"/);
+assert.match(workspaceSource, /<ResponsiveOverflowBar ariaLabel="Map viewport controls"/);
+assert.match(workspaceSource, /<MapToolbar/);
+assert.match(workspaceSource, /className="north-indicator"/);
+assert.match(stylesSource, /\.map-top-hud\s*\{/);
+assert.match(stylesSource, /grid-template-columns:\s*max-content minmax\(0, 1fr\) max-content/);
+assert.match(stylesSource, /\.map-top-hud__tools\s*\{[\s\S]*?width:\s*100%/);
+assert.match(stylesSource, /data-layout-mode='wide'\] \.map-top-hud__tools\s*\{[\s\S]*?left:\s*50%[\s\S]*?grid-area:\s*auto[\s\S]*?translateX\(-50%\)/);
+assert.match(stylesSource, /\.map-controls\s*\{[\s\S]*?width:\s*max-content/);
+assert.match(stylesSource, /\.map-top-hud__right\s*\{[\s\S]*?grid-area:\s*compass/);
+assert.match(stylesSource, /\.map-menu__panel\s*\{[\s\S]*?right:\s*0[\s\S]*?left:\s*auto/);
+assert.doesNotMatch(workspaceSource, /Map:\s*\{mapSession\.currentMap/);
+assert.doesNotMatch(workspaceSource, /map-indicator/);
+const mapMenuSource = readFileSync(new URL('../client/src/components/MapMenu.tsx', import.meta.url), 'utf8');
+assert.match(mapMenuSource, /currentMapName/);
+assert.match(mapMenuSource, /Open map menu for \$\{currentMapName\}/);
+assert.match(mapMenuSource, /map-menu__toggle-label/);
+assert.doesNotMatch(mapMenuSource, /☰/);
+assert.match(stylesSource, /\.responsive-overflow__dropdown\s*\{/);
+assert.match(stylesSource, /data-layout-mode='wide'/);
+assert.match(stylesSource, /'utility compass'[\s\S]*'tools tools'/);
+assert.doesNotMatch(stylesSource, /\.map-controls\s*\{[^}]*overflow-x:\s*auto/);
+assert.doesNotMatch(stylesSource, /\.map-toolbar__tools\s*\{[^}]*overflow-x:\s*auto/);
+const overflowSource = readFileSync(new URL('../client/src/components/ResponsiveOverflowBar.tsx', import.meta.url), 'utf8');
+assert.doesNotMatch(overflowSource, /ResizeObserver|getBoundingClientRect|measureRef|itemWidths|partitionResponsiveOverflow/);
+assert.doesNotMatch(stylesSource, /responsive-overflow__measure|responsive-overflow--measuring/);
+assert.match(overflowSource, /partitionHudItems/);
+assert.match(overflowSource, /aria-label="More controls"/);
+assert.match(overflowSource, /closeOnOutsidePointer/);
+assert.match(overflowSource, /closeOnEscape/);
 
 console.log('Path geometry and hit-testing verification passed');
 

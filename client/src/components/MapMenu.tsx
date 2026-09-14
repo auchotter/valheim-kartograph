@@ -38,6 +38,7 @@ export function MapMenu({
   const [form, setForm] = useState<MenuForm | null>(null);
   const [name, setName] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+  const currentMapName = maps.find((map) => map.id === currentMapId)?.name ?? 'Maps';
 
   const close = () => {
     setOpen(false);
@@ -124,7 +125,8 @@ export function MapMenu({
       <button
         type="button"
         className="map-menu__toggle"
-        aria-label="Open map menu"
+        title={currentMapName}
+        aria-label={`Open map menu for ${currentMapName}`}
         aria-expanded={open}
         aria-controls="map-management-panel"
         onClick={() => {
@@ -133,7 +135,7 @@ export function MapMenu({
           setFormError(null);
         }}
       >
-        <span aria-hidden="true">☰</span>
+        <span className="map-menu__toggle-label">{currentMapName}</span>
       </button>
 
       {open && (

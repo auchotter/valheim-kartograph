@@ -20,9 +20,13 @@ export function initialPointerGesture(input: {
   tool: MapTool;
   markerPlacementArmed: boolean;
   pathCreationArmed: boolean;
+  panObjectInteraction?: boolean;
 }): InitialPointerGesture {
-  if (input.button === 1 || (input.button === 0 && (input.spaceHeld || input.tool === 'pan'))) {
+  if (input.button === 1 || (input.button === 0 && input.spaceHeld)) {
     return 'pan';
+  }
+  if (input.button === 0 && input.tool === 'pan') {
+    return input.panObjectInteraction ? 'select' : 'pan';
   }
   if (input.button !== 0) {
     return 'none';
@@ -41,4 +45,15 @@ export function initialPointerGesture(input: {
     default:
       return 'none';
   }
+}
+
+/** Whether an empty left interaction in Pan + Protect-off should clear selection. */
+export function shouldClearPanSelection(input: {
+  tool: MapTool;
+  protectEnabled: boolean;
+  button: number;
+  spaceHeld: boolean;
+  objectHit: boolean;
+}): boolean {
+  return input.tool === 'pan' && !input.protectEnabled && (input.button === 0 || input.button === 1) && !input.spaceHeld && !input.objectHit;
 }

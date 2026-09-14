@@ -38,7 +38,20 @@ export interface UndoResult {
   mutation?: ObjectMutationResult;
 }
 
-const UNDO_HISTORY_LIMIT = 20;
+export interface RedoResult {
+  redone: boolean;
+  reason?: 'empty';
+  targetOperationId?: string;
+  redoOperationId?: string;
+  mapRevision?: number;
+  objectType?: MapObject['objectType'];
+  objectId?: string;
+  action?: MapOperation['operationType'];
+  idempotent: boolean;
+  mutation?: ObjectMutationResult;
+}
+
+const UNDO_REDO_HISTORY_LIMIT = 20;
 
 export type AcceptedObjectMutationListener = (result: ObjectMutationResult) => void;
 export type MapDeletedListener = (mapId: string) => void;
@@ -218,7 +231,7 @@ export class MapService {
         return undoResultFromMutation(retry, true);
       }
 
-      const candidates = this.repository.listUndoCandidates(mapId, actorId, UNDO_HISTORY_LIMIT);
+      const candidates = this.repository.listUndoCandidates(mapId, actorId, UNDO_REDO_HISTORY_LIMIT);
       for (const target of candidates) {
         const current = target.objectId === null
           ? null
@@ -251,6 +264,60 @@ export class MapService {
       }
 
       return { undone: false, reason: 'empty', idempotent: false } satisfies UndoResult;
+    });
+
+    if (result.mutation !== undefined) {
+      this.publishAcceptedObjectMutation(result.mutation);
+    }
+    return result;
+  }
+
+  redoMap(mapId: string, actorId: string, clientOperationId: string): RedoResult {
+    const result = this.repository.transaction(() => {
+      this.requireActiveMap(mapId);
+
+      const retry = this.repository.findOperation(mapId, actorId, clientOperationId);
+      if (retry !== null) {
+        if (retry.redoOfOperationId === null) {
+          throw new ConflictError('That client operation ID was already used for another mutation.');
+        }
+        return redoResultFromMutation(retry, true);
+      }
+
+      const candidates = this.repository.listRedoCandidates(mapId, actorId, UNDO_REDO_HISTORY_LIMIT);
+      for (const target of candidates) {
+        const current = target.objectId === null
+          ? null
+          : this.repository.findObject(mapId, target.objectId, true);
+        const targetAfter = asMapObject(target.payload.after);
+        if (current === null || targetAfter === null || !sameSemanticObject(current, targetAfter)) {
+          continue;
+        }
+
+        const targetBefore = asMapObject(target.payload.before);
+        const now = timestamp();
+        const inverse = inverseObject(target.operationType, current, targetBefore, now);
+        if (inverse === null) {
+          continue;
+        }
+
+        this.repository.updateObject(inverse.object);
+        const mutation = this.acceptMutation(
+          mapId,
+          actorId,
+          clientOperationId,
+          inverse.operationType,
+          current,
+          inverse.object,
+          current.objectVersion,
+          now,
+          null,
+          target.id,
+        );
+        return redoResultFromMutation(mutation.operation, false, target.id, mutation);
+      }
+
+      return { redone: false, reason: 'empty', idempotent: false } satisfies RedoResult;
     });
 
     if (result.mutation !== undefined) {
@@ -333,6 +400,7 @@ export class MapService {
     baseObjectVersion: number | null,
     now: string,
     undoOfOperationId: string | null = null,
+    redoOfOperationId: string | null = null,
   ): ObjectMutationResult {
     const mapRevision = this.repository.updateMapRevision(mapId, now);
     const operation: MapOperation = {
@@ -347,6 +415,7 @@ export class MapService {
       payload: { before, after },
       createdAt: now,
       undoOfOperationId,
+      redoOfOperationId,
     };
     this.repository.insertOperation(operation);
     return { object: after, mapRevision, operation, idempotent: false };
@@ -561,6 +630,26 @@ function undoResultFromMutation(
     undone: true,
     targetOperationId,
     inverseOperationId: operation.id,
+    mapRevision: operation.mapRevision,
+    objectType: object?.objectType,
+    objectId: operation.objectId ?? undefined,
+    action: operation.operationType,
+    idempotent,
+    mutation,
+  };
+}
+
+function redoResultFromMutation(
+  operation: MapOperation,
+  idempotent: boolean,
+  targetOperationId = operation.redoOfOperationId ?? operation.id,
+  mutation?: ObjectMutationResult,
+): RedoResult {
+  const object = asMapObject(operation.payload.after) ?? asMapObject(operation.payload.before);
+  return {
+    redone: true,
+    targetOperationId,
+    redoOperationId: operation.id,
     mapRevision: operation.mapRevision,
     objectType: object?.objectType,
     objectId: operation.objectId ?? undefined,

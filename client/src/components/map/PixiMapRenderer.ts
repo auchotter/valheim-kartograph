@@ -126,7 +126,7 @@ export class PixiMapRenderer {
   private activePathPreview: PathPreview | null = null;
   private selectedPathId: string | null = null;
   private pathEditPreview: Path | null = null;
-  private pathsVisible = true;
+  private pathOpacity = 1;
   private renderedPathZoom: number | null = null;
   private selectedMarkerId: string | null = null;
   private markerEditPreview: Marker | null = null;
@@ -272,10 +272,12 @@ export class PixiMapRenderer {
     }
   }
 
-  setPathsVisible(visible: boolean): void {
-    this.pathsVisible = visible;
-    this.paths.visible = visible;
-    if (visible && this.initialized) {
+  setPathsOpacity(opacity: number): void {
+    this.pathOpacity = Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : 1;
+    this.pathShapes.alpha = this.pathOpacity;
+    this.pathEdit.alpha = this.pathOpacity;
+    this.pathPreview.alpha = this.pathOpacity;
+    if (this.initialized) {
       this.rebuildPathSelection();
     }
     this.requestStageRender();
@@ -605,7 +607,7 @@ export class PixiMapRenderer {
 
   private rebuildPathSelection(): void {
     destroyChildren(this.pathSelection);
-    if (!this.pathsVisible || this.selectedPathId === null) {
+    if (this.selectedPathId === null) {
       return;
     }
     const selected =

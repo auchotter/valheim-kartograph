@@ -30,7 +30,7 @@ import {
   type CompletedPathGesture,
 } from '../../lib/pathGeometry';
 import { hitTestMarker, movedMarker } from '../../lib/markerGeometry';
-import { initialPointerGesture } from '../../lib/pointerGesture';
+import { initialPointerGesture, shouldClearPanSelection } from '../../lib/pointerGesture';
 import type { CompletedMarkerGesture } from '../../lib/markerObject';
 import type { MapTool } from '../../state/mapTool';
 import { isBrushTool } from '../../state/mapTool';
@@ -59,7 +59,8 @@ interface MapCanvasProps {
   markers: readonly Marker[];
   pendingPathIds: ReadonlySet<string>;
   pendingMarkerIds: ReadonlySet<string>;
-  pathsVisible: boolean;
+  pathOpacity: number;
+  protectEnabled: boolean;
   pathGeometryType: PathGeometryType;
   armedMarkerType: string | null;
   selectedPathId: string | null;
@@ -158,7 +159,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     markers,
     pendingPathIds,
     pendingMarkerIds,
-    pathsVisible,
+    pathOpacity,
+    protectEnabled,
     pathGeometryType,
     armedMarkerType,
     selectedPathId,
@@ -202,7 +204,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   const pathCreationArmedRef = useRef(tool === 'path');
   const previousToolRef = useRef(tool);
   const markerPreviewRef = useRef<Marker | null>(markerPreview);
-  const pathsVisibleRef = useRef(pathsVisible);
+  const pathOpacityRef = useRef(pathOpacity);
+  const protectEnabledRef = useRef(protectEnabled);
   const biomeRef = useRef(biome);
   const brushWidthRef = useRef(brushWidth);
   const gridVisibleRef = useRef(gridVisible);
@@ -393,9 +396,13 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   }, [mapId]);
 
   useEffect(() => {
-    pathsVisibleRef.current = pathsVisible;
-    rendererRef.current?.setPathsVisible(pathsVisible);
-  }, [pathsVisible]);
+    pathOpacityRef.current = pathOpacity;
+    rendererRef.current?.setPathsOpacity(pathOpacity);
+  }, [pathOpacity]);
+
+  useEffect(() => {
+    protectEnabledRef.current = protectEnabled;
+  }, [protectEnabled]);
 
   useEffect(() => {
     gridVisibleRef.current = gridVisible;
@@ -445,7 +452,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       renderer.setTerrainStrokes(strokesRef.current);
       renderer.setPaths(pathsRef.current);
       renderer.setMarkers(markersRef.current);
-      renderer.setPathsVisible(pathsVisibleRef.current);
+      renderer.setPathsOpacity(pathOpacityRef.current);
       renderer.setSelectedPath(selectedPathIdRef.current);
       renderer.setSelectedMarker(selectedMarkerIdRef.current);
       renderer.setMarkerEditPreview(markerPreviewRef.current);
@@ -668,6 +675,22 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     const screenPoint = screenPointFromPointer(event);
     const worldPoint = reportPointerWorld(screenPoint);
     const currentTool = toolRef.current;
+    const panObjectHit =
+      currentTool === 'pan' &&
+      !protectEnabledRef.current &&
+      worldPoint !== null &&
+      (hitTestMarker(markersRef.current, worldPoint, cameraRef.current.zoom) !== null ||
+        hitTestPath(pathsRef.current, worldPoint, 12 / cameraRef.current.zoom) !== null);
+    if (shouldClearPanSelection({
+      tool: currentTool,
+      protectEnabled: protectEnabledRef.current,
+      button: event.button,
+      spaceHeld: spaceHeldRef.current,
+      objectHit: panObjectHit,
+    })) {
+      selectMarker(null);
+      selectPath(null);
+    }
     // Navigation always wins before any tool can capture a drawing gesture.
     const initialGesture = initialPointerGesture({
       button: event.button,
@@ -675,6 +698,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       tool: currentTool,
       markerPlacementArmed: armedMarkerTypeRef.current !== null,
       pathCreationArmed: pathCreationArmedRef.current,
+      panObjectInteraction: panObjectHit,
     });
 
     if (initialGesture === 'pan') {
@@ -718,7 +742,9 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       return;
     }
 
-    if (currentTool === 'select') {
+    const interactivePan = currentTool === 'pan' && !protectEnabledRef.current && initialGesture === 'select';
+
+    if (currentTool === 'select' || interactivePan) {
       const hitMarker = hitTestMarker(markersRef.current, worldPoint, cameraRef.current.zoom);
       if (hitMarker !== null) {
         event.preventDefault();
@@ -743,7 +769,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       selectMarker(null);
     }
 
-    if (currentTool === 'path' || currentTool === 'select') {
+    if (currentTool === 'path' || currentTool === 'select' || interactivePan) {
       const currentSelected = selectedPath();
       const controlIndex =
         currentSelected !== null &&
@@ -763,15 +789,13 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         return;
       }
 
-      const hit = pathsVisibleRef.current
-        ? hitTestPath(pathsRef.current, worldPoint, 12 / cameraRef.current.zoom)
-        : null;
+      const hit = hitTestPath(pathsRef.current, worldPoint, 12 / cameraRef.current.zoom);
       if (hit !== null) {
         event.preventDefault();
         selectPath(hit.id);
         return;
       }
-      if (currentTool === 'select' || !pathCreationArmedRef.current) {
+      if (currentTool === 'select' || interactivePan || !pathCreationArmedRef.current) {
         event.preventDefault();
         selectPath(null);
         if (currentTool === 'path') {

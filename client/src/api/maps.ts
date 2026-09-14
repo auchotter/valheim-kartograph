@@ -52,3 +52,22 @@ export async function undoMap(mapId: Id, actorId: Id, clientOperationId: Id): Pr
     body: JSON.stringify({ actorId, clientOperationId }),
   });
 }
+
+export interface RedoMapResponse {
+  redone: boolean;
+  reason?: 'empty';
+  targetOperationId?: Id;
+  redoOperationId?: Id;
+  mapRevision?: number;
+  objectType?: MapObject['objectType'];
+  objectId?: Id;
+  action?: string;
+  idempotent: boolean;
+}
+
+export async function redoMap(mapId: Id, actorId: Id, clientOperationId: Id): Promise<RedoMapResponse> {
+  return requestJson(`/api/maps/${mapId}/redo`, {
+    method: 'POST',
+    body: JSON.stringify({ actorId, clientOperationId }),
+  });
+}

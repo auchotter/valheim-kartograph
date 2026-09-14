@@ -9,25 +9,36 @@ import { useMapSession } from '../state/useMapSession';
 import type { MapTool } from '../state/mapTool';
 import { mapToValheimCoordinates } from '../lib/valheimCoordinates';
 import { CoordinateNavigator } from './CoordinateNavigator';
+import { ResponsiveOverflowBar, type ResponsiveOverflowItem } from './ResponsiveOverflowBar';
+import { useHudLayout } from '../state/useHudLayout';
 import { clearMarkerInteraction, toggleArmedMarkerType } from '../lib/markerPlacement';
+import { nextPathOpacity, pathOpacityLabel, type PathOpacity } from '../lib/pathVisibility';
+import { readMapUiPreferences, writeMapUiPreferences } from '../lib/mapUiPreferences';
 
 const DEFAULT_BIOME: Biome = 'meadows';
 const DEFAULT_BRUSH_WIDTH = 120;
 
 export function MapWorkspace() {
+  const layoutMode = useHudLayout();
   const canvasRef = useRef<MapCanvasHandle>(null);
   const mapSession = useMapSession();
   const [cursorWorld, setCursorWorld] = useState<WorldPoint | null>(null);
   const [tool, setTool] = useState<MapTool>('pan');
   const [biome, setBiome] = useState<Biome>(DEFAULT_BIOME);
   const [brushWidth, setBrushWidth] = useState(DEFAULT_BRUSH_WIDTH);
-  const [gridVisible, setGridVisible] = useState(false);
-  const [pathsVisible, setPathsVisible] = useState(true);
+  const [initialUiPreferences] = useState(() => readMapUiPreferences());
+  const [gridVisible, setGridVisible] = useState(initialUiPreferences.gridEnabled);
+  const [pathOpacity, setPathOpacity] = useState<PathOpacity>(initialUiPreferences.pathOpacity);
+  const [protectEnabled, setProtectEnabled] = useState(initialUiPreferences.protectEnabled);
   const [pathGeometryType, setPathGeometryType] = useState<PathGeometryType>('freehand');
   const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
   const [armedMarkerType, setArmedMarkerType] = useState<string | null>(null);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [markerPreview, setMarkerPreview] = useState<Marker | null>(null);
+
+  useEffect(() => {
+    writeMapUiPreferences({ pathOpacity, protectEnabled, gridEnabled: gridVisible });
+  }, [gridVisible, pathOpacity, protectEnabled]);
 
   useEffect(() => {
     const cleared = clearMarkerInteraction();
@@ -108,12 +119,106 @@ export function MapWorkspace() {
     void mapSession.undo();
   }, [mapSession.undo]);
 
+  const requestRedo = useCallback(() => {
+    canvasRef.current?.cancelTransientInteraction();
+    void mapSession.redo();
+  }, [mapSession.redo]);
+
+  const utilityItems: ResponsiveOverflowItem[] = [
+    {
+      id: 'reset-view',
+      render: ({ closeOverflow }) => (
+        <button type="button" className="utility-control" onClick={() => { canvasRef.current?.resetView(); closeOverflow(); }}>
+          Reset view
+        </button>
+      ),
+    },
+    {
+      id: 'zoom-to-one',
+      render: ({ closeOverflow }) => (
+        <button type="button" className="utility-control" onClick={() => { canvasRef.current?.zoomToOne(); closeOverflow(); }}>
+          Zoom to 100%
+        </button>
+      ),
+    },
+    {
+      id: 'undo',
+      render: ({ closeOverflow }) => (
+        <button type="button" className="utility-control" onClick={() => { requestUndo(); closeOverflow(); }} disabled={mapSession.undoPending || mapSession.redoPending}>
+          Undo
+        </button>
+      ),
+    },
+    {
+      id: 'redo',
+      render: ({ closeOverflow }) => (
+        <button type="button" className="utility-control" onClick={() => { requestRedo(); closeOverflow(); }} disabled={mapSession.redoPending || mapSession.undoPending}>
+          Redo
+        </button>
+      ),
+    },
+    {
+      id: 'grid',
+      render: ({ closeOverflow }) => (
+        <button type="button" className="utility-control" aria-pressed={gridVisible} onClick={() => { setGridVisible((visible) => !visible); closeOverflow(); }}>
+          Grid
+        </button>
+      ),
+    },
+    {
+      id: 'paths',
+      render: ({ closeOverflow }) => (
+        <button
+          type="button"
+          className="utility-control"
+          aria-label={pathOpacityLabel(pathOpacity)}
+          onClick={() => { setPathOpacity((opacity) => nextPathOpacity(opacity)); closeOverflow(); }}
+        >
+          {pathOpacityLabel(pathOpacity)}
+        </button>
+      ),
+    },
+    {
+      id: 'protect',
+      render: ({ closeOverflow }) => (
+        <button
+          type="button"
+          className="utility-control"
+          aria-pressed={protectEnabled}
+          onClick={() => {
+            const next = !protectEnabled;
+            setProtectEnabled(next);
+            if (next && tool === 'pan') {
+              setSelectedPathId(null);
+              setSelectedMarkerId(null);
+            }
+            closeOverflow();
+          }}
+        >
+          {protectEnabled ? '✓ Protect' : 'Protect'}
+        </button>
+      ),
+    },
+    {
+      id: 'coordinate',
+      render: ({ inOverflow, closeOverflow }) => <CoordinateNavigator onGo={goToCoordinate} onComplete={inOverflow ? closeOverflow : undefined} />,
+    },
+  ];
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTypingTarget(event.target)) {
         return;
       }
 
+      const redoShortcut =
+        ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'z' && !event.altKey) ||
+        (event.ctrlKey && event.key.toLowerCase() === 'y' && !event.metaKey && !event.altKey && !event.shiftKey);
+      if (redoShortcut) {
+        event.preventDefault();
+        requestRedo();
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && !event.altKey && !event.shiftKey) {
         event.preventDefault();
         requestUndo();
@@ -149,7 +254,7 @@ export function MapWorkspace() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [changeTool, requestUndo]);
+  }, [changeTool, requestRedo, requestUndo]);
 
   return (
     <main className="map-workspace">
@@ -164,7 +269,8 @@ export function MapWorkspace() {
         markers={mapSession.markers}
         pendingPathIds={mapSession.pendingPathIds}
         pendingMarkerIds={mapSession.pendingMarkerIds}
-        pathsVisible={pathsVisible}
+        pathOpacity={pathOpacity}
+        protectEnabled={protectEnabled}
         pathGeometryType={pathGeometryType}
         armedMarkerType={armedMarkerType}
         selectedPathId={selectedPathId}
@@ -190,64 +296,46 @@ export function MapWorkspace() {
 
       {gridVisible && <div className="map-centre-reticle" aria-hidden="true" />}
 
-      <MapMenu
-        maps={mapSession.maps}
-        currentMapId={mapSession.currentMap?.id ?? null}
-        disabled={mapSession.mapActionsDisabled}
-        error={mapSession.mapError}
-        onSelectMap={mapSession.switchMap}
-        onCreateMap={mapSession.createAndSelectMap}
-        onRenameMap={mapSession.renameExistingMap}
-        onDuplicateMap={mapSession.duplicateAndSelectMap}
-        onDeleteMap={mapSession.deleteExistingMap}
-      />
+      <div className="map-top-hud" data-layout-mode={layoutMode}>
+        <div className="map-top-hud__utility">
+          <ResponsiveOverflowBar ariaLabel="Map viewport controls" className="map-controls" items={utilityItems} mode={layoutMode} group="utility" />
+        </div>
 
-      <nav className="map-controls" aria-label="Map viewport controls">
-        <button type="button" onClick={() => canvasRef.current?.resetView()}>
-          Reset view
-        </button>
-        <button type="button" onClick={() => canvasRef.current?.zoomToOne()}>
-          Zoom to 100%
-        </button>
-        <button type="button" onClick={requestUndo} disabled={mapSession.undoPending}>
-          Undo
-        </button>
-        <button
-          type="button"
-          aria-pressed={gridVisible}
-          onClick={() => setGridVisible((visible) => !visible)}
-        >
-          Grid
-        </button>
-        <button
-          type="button"
-          aria-pressed={pathsVisible}
-          onClick={() => {
-            setPathsVisible((visible) => !visible);
-            setSelectedPathId(null);
-          }}
-        >
-          Paths
-        </button>
-        <CoordinateNavigator onGo={goToCoordinate} />
-        {mapSession.currentMap !== null && (
-          <span className="map-controls__map-name">Map: {mapSession.currentMap.name}</span>
-        )}
-      </nav>
+        <div className="map-top-hud__tools">
+          <MapToolbar
+            layoutMode={layoutMode}
+            tool={tool}
+            biome={biome}
+            brushWidth={brushWidth}
+            pathGeometryType={pathGeometryType}
+            hasSelectedPath={selectedPathId !== null}
+            selectedPathPending={selectedPathId !== null && mapSession.pendingPathIds.has(selectedPathId)}
+            onToolChange={changeTool}
+            onBiomeChange={setBiome}
+            onBrushWidthChange={setBrushWidth}
+            onPathGeometryTypeChange={setPathGeometryType}
+            onDeleteSelectedPath={() => canvasRef.current?.deleteSelectedPath()}
+          />
+        </div>
 
-      <MapToolbar
-        tool={tool}
-        biome={biome}
-        brushWidth={brushWidth}
-        pathGeometryType={pathGeometryType}
-        hasSelectedPath={selectedPathId !== null}
-        selectedPathPending={selectedPathId !== null && mapSession.pendingPathIds.has(selectedPathId)}
-        onToolChange={changeTool}
-        onBiomeChange={setBiome}
-        onBrushWidthChange={setBrushWidth}
-        onPathGeometryTypeChange={setPathGeometryType}
-        onDeleteSelectedPath={() => canvasRef.current?.deleteSelectedPath()}
-      />
+        <div className="map-top-hud__right">
+          <MapMenu
+            maps={mapSession.maps}
+            currentMapId={mapSession.currentMap?.id ?? null}
+            disabled={mapSession.mapActionsDisabled}
+            error={mapSession.mapError}
+            onSelectMap={mapSession.switchMap}
+            onCreateMap={mapSession.createAndSelectMap}
+            onRenameMap={mapSession.renameExistingMap}
+            onDuplicateMap={mapSession.duplicateAndSelectMap}
+            onDeleteMap={mapSession.deleteExistingMap}
+          />
+          <aside className="north-indicator" aria-label="North points up">
+            <span aria-hidden="true">↑</span>
+            <span>N</span>
+          </aside>
+        </div>
+      </div>
 
       {tool === 'marker' && (
         <MarkerPalette armedMarkerType={armedMarkerType} onMarkerTypeChange={toggleMarkerPlacement} />
@@ -265,11 +353,6 @@ export function MapWorkspace() {
           onDelete={deleteMarker}
         />
       )}
-
-      <aside className="north-indicator" aria-label="North points up">
-        <span aria-hidden="true">↑</span>
-        <span>N</span>
-      </aside>
 
       <output className="map-debug" aria-live="polite">
         <div>Zoom: {(mapSession.camera.zoom * 100).toFixed(0)}%</div>

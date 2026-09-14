@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { BiomeStroke, Id, MapObject, MapRecord, Marker, Path } from '../../../shared/domain';
-import { createMap, deleteMap, duplicateMap, listMaps, loadMapState, renameMap, undoMap as requestUndo } from '../api/maps';
+import { createMap, deleteMap, duplicateMap, listMaps, loadMapState, redoMap as requestRedo, renameMap, undoMap as requestUndo } from '../api/maps';
 import { ApiClientError } from '../api/http';
 import {
   createBiomeStroke,
@@ -17,6 +17,13 @@ import { createOptimisticPath } from '../lib/pathObject';
 import { createOptimisticMarker, type CompletedMarkerGesture } from '../lib/markerObject';
 import type { CompletedPathGesture } from '../lib/pathGeometry';
 import { DEFAULT_CAMERA, type Camera } from '../lib/camera';
+import {
+  cameraViewRecord,
+  CAMERA_VIEW_WRITE_DEBOUNCE_MS,
+  readCameraViewForMap,
+  writeCameraView,
+  type CameraViewRecord,
+} from '../lib/cameraViewPersistence';
 import {
   applyAcceptedObjectEvent,
   classifyRealtimeRevision,
@@ -55,11 +62,13 @@ export function useMapSession() {
   const pathMutationGuardRef = useRef(new ScopedMutationGuard());
   const markerMutationGuardRef = useRef(new ScopedMutationGuard());
   const mapActionInFlightRef = useRef(false);
-  const undoInFlightRef = useRef(false);
+  const historyInFlightRef = useRef(false);
   const currentSocketRef = useRef<WebSocket | null>(null);
   const socketGenerationRef = useRef(0);
 
-  const [camera, setCamera] = useState<Camera>(DEFAULT_CAMERA);
+  const [camera, setCameraState] = useState<Camera>(DEFAULT_CAMERA);
+  const latestCameraViewRef = useRef<CameraViewRecord | null>(null);
+  const cameraWriteTimerRef = useRef<number | null>(null);
   const [maps, setMaps] = useState<MapRecord[]>([]);
   const [currentMap, setCurrentMap] = useState<MapRecord | null>(null);
   const [objects, setObjects] = useState<MapObject[]>([]);
@@ -75,6 +84,7 @@ export function useMapSession() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [undoMessage, setUndoMessage] = useState<string | null>(null);
   const [undoPending, setUndoPending] = useState(false);
+  const [redoPending, setRedoPending] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const [mapActionBusy, setMapActionBusy] = useState(false);
   const [collaborationStatus, setCollaborationStatus] = useState<
@@ -84,6 +94,51 @@ export function useMapSession() {
   useEffect(() => {
     objectsRef.current = objects;
   }, [objects]);
+
+  const flushCameraView = useCallback((): void => {
+    if (cameraWriteTimerRef.current !== null) {
+      window.clearTimeout(cameraWriteTimerRef.current);
+      cameraWriteTimerRef.current = null;
+    }
+    if (latestCameraViewRef.current !== null) {
+      writeCameraView(latestCameraViewRef.current);
+    }
+  }, []);
+
+  const cancelPendingCameraWrite = useCallback((): void => {
+    if (cameraWriteTimerRef.current !== null) {
+      window.clearTimeout(cameraWriteTimerRef.current);
+      cameraWriteTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleCameraViewWrite = useCallback((mapId: Id, nextCamera: Camera): void => {
+    latestCameraViewRef.current = cameraViewRecord(mapId, nextCamera);
+    cancelPendingCameraWrite();
+    cameraWriteTimerRef.current = window.setTimeout(() => {
+      cameraWriteTimerRef.current = null;
+      if (latestCameraViewRef.current !== null) {
+        writeCameraView(latestCameraViewRef.current);
+      }
+    }, CAMERA_VIEW_WRITE_DEBOUNCE_MS);
+  }, [cancelPendingCameraWrite]);
+
+  const setCamera = useCallback((nextCamera: Camera): void => {
+    setCameraState(nextCamera);
+    const map = currentMapRef.current;
+    if (map !== null) {
+      scheduleCameraViewWrite(map.id, nextCamera);
+    }
+  }, [scheduleCameraViewWrite]);
+
+  useEffect(() => {
+    const onPageHide = () => flushCameraView();
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      flushCameraView();
+    };
+  }, [flushCameraView]);
 
   const waitForPendingMutations = useCallback((): Promise<void> => {
     if (pendingSaveCountRef.current === 0) {
@@ -115,6 +170,7 @@ export function useMapSession() {
       state: { map: MapRecord; objects: MapObject[] },
       mapList: MapRecord[] | undefined,
       resetCamera: boolean,
+      cameraOverride?: Camera,
     ) => {
       currentMapRef.current = state.map;
       localRevisionRef.current = state.map.revision;
@@ -134,11 +190,14 @@ export function useMapSession() {
       setUndoMessage(null);
       setLoadState('ready');
       rememberMapId(state.map.id);
-      if (resetCamera) {
-        setCamera({ ...DEFAULT_CAMERA });
+      const nextCamera = cameraOverride ?? (resetCamera ? { ...DEFAULT_CAMERA } : undefined);
+      if (nextCamera !== undefined) {
+        cancelPendingCameraWrite();
+        setCameraState(nextCamera);
+        scheduleCameraViewWrite(state.map.id, nextCamera);
       }
     },
-    [],
+    [cancelPendingCameraWrite, scheduleCameraViewWrite],
   );
 
   const activateMap = useCallback(
@@ -213,7 +272,11 @@ export function useMapSession() {
       if (request !== loadRequestRef.current) {
         return { ok: false };
       }
-      applyLoadedMap(state, mapList, false);
+      const savedView = readCameraViewForMap(state.map.id);
+      const initialCamera: Camera = savedView === null
+        ? { ...DEFAULT_CAMERA }
+        : { cameraX: savedView.cameraX, cameraY: savedView.cameraY, zoom: savedView.zoom };
+      applyLoadedMap(state, mapList, false, initialCamera);
       return { ok: true };
     } catch (error) {
       if (request !== loadRequestRef.current) {
@@ -524,9 +587,12 @@ export function useMapSession() {
         if (currentMapRef.current?.id === mapId) {
           return { ok: true };
         }
+        // Do not let the previous map's debounce fire while the replacement
+        // map is still loading.
+        cancelPendingCameraWrite();
         return activateMap(mapId, { resetCamera: true, preservePreviousMapOnFailure: true });
       }),
-    [activateMap, runMapAction],
+    [activateMap, cancelPendingCameraWrite, runMapAction],
   );
 
   const createAndSelectMap = useCallback(
@@ -536,12 +602,13 @@ export function useMapSession() {
         if (name === null) {
           return { ok: false, error: 'Enter a map name.' };
         }
+        cancelPendingCameraWrite();
         const created = await createMap(name);
         const mapList = await listMaps();
         setMaps(mapList);
         return activateMap(created.id, { maps: mapList, resetCamera: true, preservePreviousMapOnFailure: true });
       }),
-    [activateMap, runMapAction],
+    [activateMap, cancelPendingCameraWrite, runMapAction],
   );
 
   const renameExistingMap = useCallback(
@@ -569,18 +636,22 @@ export function useMapSession() {
         if (name === null) {
           return { ok: false, error: 'Enter a map name.' };
         }
+        cancelPendingCameraWrite();
         const duplicate = await duplicateMap(mapId, name);
         const mapList = await listMaps();
         setMaps(mapList);
         return activateMap(duplicate.id, { maps: mapList, resetCamera: true, preservePreviousMapOnFailure: true });
       }),
-    [activateMap, runMapAction],
+    [activateMap, cancelPendingCameraWrite, runMapAction],
   );
 
   const deleteExistingMap = useCallback(
     (mapId: Id): Promise<MapActionResult> =>
       runMapAction(async () => {
         const wasCurrent = currentMapRef.current?.id === mapId;
+        if (wasCurrent) {
+          cancelPendingCameraWrite();
+        }
         await deleteMap(mapId);
         let mapList = await listMaps();
 
@@ -617,7 +688,7 @@ export function useMapSession() {
           preservePreviousMapOnFailure: false,
         });
       }),
-    [activateMap, runMapAction],
+    [activateMap, cancelPendingCameraWrite, runMapAction],
   );
 
   const saveStroke = useCallback(async (gesture: CompletedBrushGesture): Promise<void> => {
@@ -1010,7 +1081,7 @@ export function useMapSession() {
 
   const undoCurrentChange = useCallback(async (): Promise<void> => {
     const map = currentMapRef.current;
-    if (map === null || mapActionInFlightRef.current || undoInFlightRef.current) {
+    if (map === null || mapActionInFlightRef.current || historyInFlightRef.current) {
       return;
     }
     if (pendingSaveCountRef.current > 0) {
@@ -1020,7 +1091,7 @@ export function useMapSession() {
 
     const mapId = map.id;
     const clientOperationId = crypto.randomUUID();
-    undoInFlightRef.current = true;
+    historyInFlightRef.current = true;
     pendingSaveCountRef.current += 1;
     trackPendingOperation(clientOperationId, mapId, '');
     setUndoPending(true);
@@ -1055,8 +1126,57 @@ export function useMapSession() {
     } finally {
       pendingOperationIdsRef.current.delete(clientOperationId);
       finishPendingMutation();
-      undoInFlightRef.current = false;
+      historyInFlightRef.current = false;
       setUndoPending(false);
+    }
+  }, [applyLoadedMap, finishPendingMutation, trackPendingOperation]);
+
+  const redoCurrentChange = useCallback(async (): Promise<void> => {
+    const map = currentMapRef.current;
+    if (map === null || mapActionInFlightRef.current || historyInFlightRef.current) {
+      return;
+    }
+    if (pendingSaveCountRef.current > 0) {
+      setUndoMessage('Wait for the active save to finish before redoing.');
+      return;
+    }
+
+    const mapId = map.id;
+    const clientOperationId = crypto.randomUUID();
+    historyInFlightRef.current = true;
+    pendingSaveCountRef.current += 1;
+    trackPendingOperation(clientOperationId, mapId, '');
+    setRedoPending(true);
+    setUndoMessage(null);
+
+    try {
+      const result = await requestRedo(
+        mapId,
+        actorIdRef.current ?? (actorIdRef.current = actorId()),
+        clientOperationId,
+      );
+      if (currentMapRef.current?.id !== mapId) {
+        return;
+      }
+      if (!result.redone) {
+        setUndoMessage('Nothing to redo.');
+        return;
+      }
+
+      const state = await loadMapState(mapId);
+      if (currentMapRef.current?.id !== mapId) {
+        return;
+      }
+      applyLoadedMap(state, undefined, false);
+    } catch (error) {
+      if (currentMapRef.current?.id === mapId) {
+        setUndoMessage(toMessage(error, 'Redo failed.'));
+      }
+    } finally {
+      pendingOperationIdsRef.current.delete(clientOperationId);
+      finishPendingMutation();
+      historyInFlightRef.current = false;
+      setRedoPending(false);
     }
   }, [applyLoadedMap, finishPendingMutation, trackPendingOperation]);
 
@@ -1104,6 +1224,7 @@ export function useMapSession() {
     mapActionBusy,
     undoMessage,
     undoPending,
+    redoPending,
     collaborationStatus,
     mapActionsDisabled:
       mapActionBusy ||
@@ -1111,6 +1232,7 @@ export function useMapSession() {
       pendingPathMutationCount > 0 ||
       pendingMarkerMutationCount > 0 ||
       undoPending ||
+      redoPending ||
       loadState === 'loading',
     retryBootstrap: bootstrap,
     switchMap,
@@ -1126,6 +1248,7 @@ export function useMapSession() {
     saveMarkerUpdate,
     removeMarker,
     undo: undoCurrentChange,
+    redo: redoCurrentChange,
   };
 }
 

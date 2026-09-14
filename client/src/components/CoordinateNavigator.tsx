@@ -4,9 +4,10 @@ import { parseValheimCoordinate, valheimToMapCoordinates } from '../lib/valheimC
 
 interface CoordinateNavigatorProps {
   onGo: (coordinate: MapCoordinate) => void;
+  onComplete?: () => void;
 }
 
-export function CoordinateNavigator({ onGo }: CoordinateNavigatorProps) {
+export function CoordinateNavigator({ onGo, onComplete }: CoordinateNavigatorProps) {
   const [open, setOpen] = useState(false);
   const [x, setX] = useState('');
   const [z, setZ] = useState('');
@@ -47,11 +48,13 @@ export function CoordinateNavigator({ onGo }: CoordinateNavigatorProps) {
     onGo(valheimToMapCoordinates(parsedX, parsedZ));
     setOpen(false);
     setError(null);
+    onComplete?.();
   };
 
   return (
     <div ref={rootRef} className="coordinate-navigator">
       <button
+        className="utility-control"
         type="button"
         aria-expanded={open}
         aria-haspopup="dialog"
@@ -96,7 +99,7 @@ export function CoordinateNavigator({ onGo }: CoordinateNavigatorProps) {
           </label>
           {error !== null && <span className="coordinate-navigator__error" role="alert">{error}</span>}
           <footer>
-            <button type="button" onClick={() => { setOpen(false); setError(null); }}>Cancel</button>
+            <button type="button" onClick={() => { setOpen(false); setError(null); onComplete?.(); }}>Cancel</button>
             <button type="submit">Go</button>
           </footer>
         </form>

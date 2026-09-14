@@ -1,6 +1,7 @@
 import { Texture } from 'pixi.js';
 import type { Biome } from '../../../shared/domain';
 import { biomeStyle } from './biomeStyles';
+import type { MapAppearance } from './mapAppearance';
 
 /**
  * Keep the 192-world-unit pattern tile, but rasterise it densely enough for
@@ -10,6 +11,19 @@ import { biomeStyle } from './biomeStyles';
 export const BIOME_PATTERN_SOURCE_RESOLUTION = 8;
 
 const textureCache = new Map<Biome, Texture>();
+let activeTextureAppearance: MapAppearance = 'modern';
+
+/** Releases the one active theme's sources before the terrain is rebuilt. */
+export function setBiomeTextureAppearance(appearance: MapAppearance): void {
+  if (appearance === activeTextureAppearance) {
+    return;
+  }
+  for (const texture of textureCache.values()) {
+    texture.destroy(true);
+  }
+  textureCache.clear();
+  activeTextureAppearance = appearance;
+}
 
 /** Creates each opaque biome pattern once for the life of the frontend. */
 export function biomeTexture(biome: Biome): Texture {
@@ -18,7 +32,7 @@ export function biomeTexture(biome: Biome): Texture {
     return cached;
   }
 
-  const style = biomeStyle(biome);
+  const style = biomeStyle(biome, activeTextureAppearance);
   const canvas = document.createElement('canvas');
   canvas.width = style.tileSize * BIOME_PATTERN_SOURCE_RESOLUTION;
   canvas.height = style.tileSize * BIOME_PATTERN_SOURCE_RESOLUTION;
@@ -36,7 +50,7 @@ export function biomeTexture(biome: Biome): Texture {
   // pixels here, so reapplying this tile never compounds translucency.
   context.fillStyle = style.baseHex;
   context.fillRect(0, 0, style.tileSize, style.tileSize);
-  style.drawPattern(context, style.tileSize, style.markHex);
+  style.drawPattern(context, style.tileSize, style.markHex, style.snowHex);
 
   const texture = Texture.from({
     resource: canvas,

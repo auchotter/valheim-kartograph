@@ -6,11 +6,14 @@ import {
   RenderTexture,
   Sprite,
   Text,
+  Texture,
   UniformGroup,
 } from 'pixi.js';
 import type { Biome, BiomeStroke, Marker, Path, PathGeometryType, WorldPoint } from '../../../../shared/domain';
-import { MapLayer } from '../../../../shared/domain';
-import { biomeTexture } from '../../lib/biomeTextures';
+import { biomeTexture, setBiomeTextureAppearance } from '../../lib/biomeTextures';
+import type { MapAppearance } from '../../lib/mapAppearance';
+import { mapVisualTheme } from '../../lib/mapVisualTheme';
+import { destroyParchmentTextures, parchmentTextures } from '../../lib/parchmentTextures';
 import { chooseGridSpacing } from '../../lib/grid';
 import { pathPolyline } from '../../lib/pathGeometry';
 import { drawMarkerIcon, MARKER_ICON_VIEWBOX } from '../../lib/markerIcons';
@@ -34,7 +37,6 @@ import {
 } from '../../lib/markerCaptionFont';
 import type { Camera } from '../../lib/camera';
 
-const PARCHMENT_COLOR = 0xe8e1d1;
 const CLASSIFICATION_LAND_COLOR = 0xff0000;
 const CLASSIFICATION_OCEAN_COLOR = 0x0000ff;
 const PATH_SELECTION_COLOR = 0x918066;
@@ -104,6 +106,10 @@ export class PixiMapRenderer {
   private readonly gridWorld = new Container();
   private readonly grid = new Graphics();
   private readonly overlayWorld = new Container();
+  private readonly markerIconWorld = new Container();
+  private readonly parchmentSurfaceContainer = new Container();
+  private parchmentSurfaceLayers: [Graphics, Graphics, Graphics] | null = null;
+  private parchmentSurfaceTextures: [Texture, Texture, Texture] | null = null;
   private readonly origin = new Graphics();
   private readonly paths = new Container();
   private readonly pathShapes = new Container();
@@ -111,17 +117,19 @@ export class PixiMapRenderer {
   private readonly pathPreview = new Container();
   private readonly pathSelection = new Container();
   private readonly pathGraphics = new Map<string, Graphics>();
-  private readonly markers = new Container();
   private readonly markerShapes = new Container();
   private readonly markerPlacement = new Container();
   private readonly markerEdit = new Container();
   private readonly markerSelection = new Container();
   private readonly markerNodes = new Map<string, Container>();
   private readonly markerVisualNodes = new Map<string, Container>();
+  private readonly markerCaptionNodes = new Map<string, Container>();
+  private readonly markerEditCaption = new Container();
   private readonly labels = new Container();
   private readonly brushCursor = new Graphics();
   private readonly coastlineUniforms = new UniformGroup({
     uCoastlineThickness: { value: 1, type: 'f32' },
+    uCoastlineCoreColor: { value: [0.19, 0.177, 0.153, 0.78], type: 'vec4<f32>' },
   });
   private coastlineFilter: Filter | null = null;
   private camera: Camera | null = null;
@@ -140,18 +148,21 @@ export class PixiMapRenderer {
   private markerPlacementNode: Container | null = null;
   private cursor: BrushCursor | null = null;
   private gridVisible = false;
+  private appearance: MapAppearance = 'modern';
   private initialized = false;
   private destroyed = false;
 
-  async initialize(host: HTMLElement): Promise<void> {
+  async initialize(host: HTMLElement, appearance: MapAppearance = 'modern'): Promise<void> {
     this.host = host;
+    this.appearance = appearance;
+    setBiomeTextureAppearance(appearance);
     const application = new Application();
     this.application = application;
 
     await application.init({
       width: Math.max(1, host.clientWidth),
       height: Math.max(1, host.clientHeight),
-      background: PARCHMENT_COLOR,
+      background: mapVisualTheme(appearance).parchmentColor,
       antialias: true,
       autoDensity: true,
       resolution: window.devicePixelRatio || 1,
@@ -168,26 +179,30 @@ export class PixiMapRenderer {
     application.canvas.classList.add('map-canvas');
     host.replaceChildren(application.canvas);
 
-    const layerContainers: Readonly<Record<MapLayer, Container>> = {
-      [MapLayer.Terrain]: this.terrain,
-      [MapLayer.Paths]: this.paths,
-      [MapLayer.Markers]: this.markers,
-      [MapLayer.Labels]: this.labels,
-    };
     this.terrain.addChild(this.terrainStrokes, this.terrainPreview);
     this.paths.addChild(this.pathShapes, this.pathEdit, this.pathPreview, this.pathSelection);
-    // Marker roots remain directly in the camera-transformed world layer.
-    // Their visual children alone receive inverse zoom compensation.
-    this.markers.addChild(this.markerShapes, this.markerPlacement, this.markerEdit, this.markerSelection);
-    this.terrainWorld.addChild(layerContainers[MapLayer.Terrain]);
+    // Marker roots remain in the camera-transformed world layer. Their visual
+    // children alone receive inverse zoom compensation. Icons are separated
+    // from selection/caption ink so Immersive can print icons into the paper
+    // while leaving interaction/text crisp above it.
+    this.markerIconWorld.addChild(this.markerShapes, this.markerPlacement, this.markerEdit, this.markerEditCaption);
+    this.parchmentSurfaceContainer.eventMode = 'none';
+    this.parchmentSurfaceContainer.alpha = 1;
+    this.parchmentSurfaceContainer.visible = true;
+    this.parchmentSurfaceContainer.renderable = true;
+    if (this.appearance === 'immersive') {
+      this.parchmentSurfaceContainer.addChild(...this.ensureParchmentSurfaceLayers());
+    }
+    this.terrainWorld.addChild(this.terrain);
     this.classificationWorld.addChild(this.terrainClassification);
     this.gridWorld.addChild(this.grid);
     this.coastlineFilter = createCoastlineFilter(this.coastlineUniforms);
     this.coastlineSurface.filters = [this.coastlineFilter];
     this.overlayWorld.addChild(
-      layerContainers[MapLayer.Paths],
-      layerContainers[MapLayer.Markers],
-      layerContainers[MapLayer.Labels],
+      this.paths,
+      this.markerIconWorld,
+      this.markerSelection,
+      this.labels,
       this.origin,
       this.brushCursor,
     );
@@ -202,6 +217,7 @@ export class PixiMapRenderer {
       this.overlayWorld,
     );
     this.addOriginIndicator();
+    this.configureAppearanceLayers();
     this.rebuildTerrain();
     this.rebuildPreview();
     this.rebuildPaths();
@@ -258,6 +274,25 @@ export class PixiMapRenderer {
       this.scheduleTerrainRender();
       this.requestStageRender();
     }
+  }
+
+  setAppearance(appearance: MapAppearance): void {
+    if (appearance === this.appearance) {
+      return;
+    }
+
+    // Remove every Graphics object that can reference the old source textures
+    // before releasing the single active theme cache.
+    destroyChildren(this.terrainStrokes);
+    destroyChildren(this.terrainPreview);
+    setBiomeTextureAppearance(appearance);
+    this.appearance = appearance;
+    this.rebuildTerrain();
+    this.rebuildPreview();
+    this.configureAppearanceLayers();
+    this.updateVisualThemePresentation();
+    this.scheduleTerrainRender();
+    this.requestStageRender();
   }
 
   /** Request one follow-up replay after the hydrated terrain's first pass. */
@@ -413,6 +448,10 @@ export class PixiMapRenderer {
     this.classificationTexture = null;
     this.coastlineFilter?.destroy();
     this.coastlineFilter = null;
+    this.parchmentSurfaceContainer.removeChildren().forEach((layer) => layer.destroy());
+    this.parchmentSurfaceLayers = null;
+    this.parchmentSurfaceTextures = null;
+    destroyParchmentTextures();
 
     if (this.initialized) {
       this.destroyApplication();
@@ -450,7 +489,7 @@ export class PixiMapRenderer {
 
     this.application.renderer.resize(width, height, resolution);
     this.ensureRenderTextures(width, height, resolution);
-    this.parchment.clear().rect(0, 0, width, height).fill({ color: PARCHMENT_COLOR });
+    this.redrawParchment(width, height);
     this.classificationDebugBackdrop.clear().rect(0, 0, width, height).fill({ color: 0x000000 });
     this.applyCameraTransform();
     this.requestStageRender();
@@ -545,12 +584,143 @@ export class PixiMapRenderer {
     this.classificationWorld.position.set(positionX, positionY);
     this.overlayWorld.scale.set(zoom);
     this.overlayWorld.position.set(positionX, positionY);
+    this.applyImmersiveLayerTransforms(positionX, positionY, zoom);
     this.gridWorld.scale.set(zoom);
     this.gridWorld.position.set(positionX, positionY);
     this.rebuildGrid();
     this.redrawBrushCursor();
     this.scheduleTerrainRender();
     this.requestStageRender();
+  }
+
+  private updateVisualThemePresentation(): void {
+    if (this.application !== null) {
+      this.redrawParchment(this.application.screen.width, this.application.screen.height);
+    }
+    const theme = mapVisualTheme(this.appearance);
+    this.coastlineUniforms.uniforms.uCoastlineCoreColor = [...theme.coastlineCore];
+    this.rebuildGrid();
+    this.addOriginIndicator();
+  }
+
+  private configureAppearanceLayers(): void {
+    if (this.application === null) {
+      return;
+    }
+
+    const stage = this.application.stage;
+    if (this.appearance === 'immersive') {
+      const parchmentSurfaceLayers = this.ensureParchmentSurfaceLayers();
+      this.parchmentSurfaceContainer.alpha = 1;
+      this.parchmentSurfaceContainer.visible = true;
+      this.parchmentSurfaceContainer.renderable = true;
+      for (const layer of parchmentSurfaceLayers) {
+        if (layer.parent !== this.parchmentSurfaceContainer) {
+          this.parchmentSurfaceContainer.addChild(layer);
+        }
+        layer.visible = true;
+      }
+
+      if (this.markerEditCaption.parent === this.markerIconWorld) {
+        this.markerIconWorld.removeChild(this.markerEditCaption);
+        this.overlayWorld.addChild(this.markerEditCaption);
+      }
+
+      if (this.markerIconWorld.parent !== stage) {
+        this.overlayWorld.removeChild(this.markerIconWorld);
+        const gridIndex = stage.getChildIndex(this.gridWorld);
+        stage.addChildAt(this.markerIconWorld, gridIndex);
+      }
+      if (this.parchmentSurfaceContainer.parent !== stage) {
+        const gridIndex = stage.getChildIndex(this.gridWorld);
+        // marker icons are inserted immediately before the grid above; insert
+        // paper between those icons and the grid so grid/paths/text stay clean.
+        stage.addChildAt(this.parchmentSurfaceContainer, gridIndex);
+      }
+      this.applyImmersiveLayerTransforms(
+        this.application.screen.width / 2 - (this.camera?.cameraX ?? 0) * (this.camera?.zoom ?? 1),
+        this.application.screen.height / 2 - (this.camera?.cameraY ?? 0) * (this.camera?.zoom ?? 1),
+        this.camera?.zoom ?? 1,
+      );
+      return;
+    }
+
+    if (this.parchmentSurfaceLayers !== null) {
+      for (const layer of this.parchmentSurfaceLayers) {
+        layer.visible = false;
+      }
+    }
+    if (this.markerEditCaption.parent !== this.markerIconWorld) {
+      this.overlayWorld.removeChild(this.markerEditCaption);
+      this.markerIconWorld.addChild(this.markerEditCaption);
+    }
+    if (this.parchmentSurfaceContainer.parent === stage) {
+      stage.removeChild(this.parchmentSurfaceContainer);
+    }
+    if (this.markerIconWorld.parent === stage) {
+      stage.removeChild(this.markerIconWorld);
+      const selectionIndex = this.overlayWorld.getChildIndex(this.markerSelection);
+      this.overlayWorld.addChildAt(this.markerIconWorld, selectionIndex);
+    }
+    this.markerIconWorld.position.set(0, 0);
+    this.markerIconWorld.scale.set(1, 1);
+  }
+
+  private ensureParchmentSurfaceLayers(): [Graphics, Graphics, Graphics] {
+    if (this.parchmentSurfaceLayers === null) {
+      const textures = parchmentTextures();
+      this.parchmentSurfaceTextures = [textures.broad, textures.grain, textures.flecks];
+      this.parchmentSurfaceLayers = [
+        this.createParchmentLayer(textures.broad),
+        this.createParchmentLayer(textures.grain),
+        this.createParchmentLayer(textures.flecks),
+      ];
+    }
+    return this.parchmentSurfaceLayers;
+  }
+
+  private applyImmersiveLayerTransforms(positionX: number, positionY: number, zoom: number): void {
+    if (this.appearance !== 'immersive' || this.application === null || this.parchmentSurfaceLayers === null) {
+      return;
+    }
+    this.markerIconWorld.scale.set(zoom);
+    this.markerIconWorld.position.set(positionX, positionY);
+    this.parchmentSurfaceContainer.scale.set(zoom);
+    this.parchmentSurfaceContainer.position.set(positionX, positionY);
+
+    const worldWidth = this.application.screen.width / zoom;
+    const worldHeight = this.application.screen.height / zoom;
+    const margin = 4 / zoom;
+    const cameraX = this.camera?.cameraX ?? 0;
+    const cameraY = this.camera?.cameraY ?? 0;
+    const minX = cameraX - worldWidth / 2 - margin;
+    const minY = cameraY - worldHeight / 2 - margin;
+    const surfaceWidth = worldWidth + margin * 2;
+    const surfaceHeight = worldHeight + margin * 2;
+    for (let index = 0; index < this.parchmentSurfaceLayers.length; index += 1) {
+      const layer = this.parchmentSurfaceLayers[index];
+      const texture = this.parchmentSurfaceTextures?.[index];
+      if (texture === undefined) {
+        continue;
+      }
+      layer.clear().rect(minX, minY, surfaceWidth, surfaceHeight).fill({
+        texture,
+        textureSpace: 'global',
+      });
+    }
+  }
+
+  private createParchmentLayer(texture: Texture): Graphics {
+    const layer = new Graphics();
+    layer.eventMode = 'none';
+    layer.alpha = 1;
+    layer.blendMode = 'normal';
+    return layer;
+  }
+
+  private redrawParchment(width: number, height: number): void {
+    const theme = mapVisualTheme(this.appearance);
+    this.parchment.clear().rect(0, 0, width, height).fill({ color: theme.parchmentColor });
   }
 
   private rebuildTerrain(): void {
@@ -655,14 +825,21 @@ export class PixiMapRenderer {
   /** Rebuilds only marker presentation; terrain and paths are unaffected. */
   private rebuildMarkers(): void {
     destroyChildren(this.markerShapes);
+    destroyChildren(this.labels);
+    destroyChildren(this.markerEditCaption);
     this.markerNodes.clear();
     this.markerVisualNodes.clear();
+    this.markerCaptionNodes.clear();
     const ordered = [...this.markerObjects]
       .filter((marker) => marker.deletedAt === null)
       .sort((left, right) => left.layer - right.layer || left.orderKey - right.orderKey);
     for (const marker of ordered) {
       const renderable = createMarkerRenderable(marker, this.camera?.zoom ?? 1);
       this.markerShapes.addChild(renderable.root);
+      if (renderable.caption !== null) {
+        this.labels.addChild(renderable.caption);
+        this.markerCaptionNodes.set(marker.id, renderable.caption);
+      }
       this.markerNodes.set(marker.id, renderable.root);
       this.markerVisualNodes.set(marker.id, renderable.visual);
     }
@@ -672,8 +849,12 @@ export class PixiMapRenderer {
 
   private rebuildMarkerEditPreview(): void {
     destroyChildren(this.markerEdit);
+    destroyChildren(this.markerEditCaption);
     for (const node of this.markerNodes.values()) {
       node.visible = true;
+    }
+    for (const caption of this.markerCaptionNodes.values()) {
+      caption.visible = true;
     }
     if (this.markerEditPreview === null) {
       return;
@@ -682,7 +863,15 @@ export class PixiMapRenderer {
     if (original !== undefined) {
       original.visible = false;
     }
-    this.markerEdit.addChild(createMarkerRenderable(this.markerEditPreview, this.camera?.zoom ?? 1).root);
+    const originalCaption = this.markerCaptionNodes.get(this.markerEditPreview.id);
+    if (originalCaption !== undefined) {
+      originalCaption.visible = false;
+    }
+    const renderable = createMarkerRenderable(this.markerEditPreview, this.camera?.zoom ?? 1);
+    this.markerEdit.addChild(renderable.root);
+    if (renderable.caption !== null) {
+      this.markerEditCaption.addChild(renderable.caption);
+    }
   }
 
   private rebuildMarkerPlacementPreview(): void {
@@ -737,11 +926,19 @@ export class PixiMapRenderer {
       if (visual !== undefined) {
         applyMarkerVisualTransform(visual, marker, zoom);
       }
+      const caption = this.markerCaptionNodes.get(marker.id);
+      if (caption !== undefined) {
+        applyMarkerCaptionTransform(caption, marker, zoom);
+      }
     }
     const editRoot = this.markerEdit.children[0];
     const editVisual = editRoot?.children[0];
     if (editVisual instanceof Container && this.markerEditPreview !== null) {
       applyMarkerVisualTransform(editVisual, this.markerEditPreview, zoom);
+    }
+    const editCaption = this.markerEditCaption.children[0];
+    if (editCaption instanceof Container && this.markerEditPreview !== null) {
+      applyMarkerCaptionTransform(editCaption, this.markerEditPreview, zoom);
     }
     if (this.markerPlacementPreview !== null) {
       this.rebuildMarkerPlacementPreview();
@@ -844,24 +1041,27 @@ export class PixiMapRenderer {
     const lineWidth = 0.85 / zoom;
     const firstX = Math.ceil(minX / spacing) * spacing;
     const firstY = Math.ceil(minY / spacing) * spacing;
+    const gridTheme = mapVisualTheme(this.appearance).grid;
 
     for (let x = firstX; x <= maxX + spacing * 0.001; x += spacing) {
-      drawGridLine(this.grid, x, minY, x, maxY, spacing, lineWidth, x === 0);
+      drawGridLine(this.grid, x, minY, x, maxY, spacing, lineWidth, x === 0, gridTheme);
     }
     for (let y = firstY; y <= maxY + spacing * 0.001; y += spacing) {
-      drawGridLine(this.grid, minX, y, maxX, y, spacing, lineWidth, y === 0);
+      drawGridLine(this.grid, minX, y, maxX, y, spacing, lineWidth, y === 0, gridTheme);
     }
   }
 
   private addOriginIndicator(): void {
+    const color = mapVisualTheme(this.appearance).grid.originIndicatorColor;
     this.origin
+      .clear()
       .moveTo(-12, 0)
       .lineTo(12, 0)
       .moveTo(0, -12)
       .lineTo(0, 12)
-      .stroke({ color: 0x69705d, alpha: 0.25, width: 1 })
+      .stroke({ color, alpha: 0.25, width: 1 })
       .circle(0, 0, 3)
-      .fill({ color: 0x69705d, alpha: 0.32 });
+      .fill({ color, alpha: 0.32 });
   }
 }
 
@@ -870,7 +1070,13 @@ type DottedPath = Pick<Path, 'geometryType' | 'points'> | PathPreview;
 
 type MarkerVisual = Pick<Marker, 'markerType' | 'x' | 'y' | 'name' | 'sizeScale' | 'directionDegrees'>;
 
-function createMarkerRenderable(marker: MarkerVisual, zoom: number): { root: Container; visual: Container } {
+interface MarkerRenderable {
+  root: Container;
+  visual: Container;
+  caption: Container | null;
+}
+
+function createMarkerRenderable(marker: MarkerVisual, zoom: number): MarkerRenderable {
   const root = new Container();
   root.position.set(marker.x, marker.y);
   const visual = new Container();
@@ -879,28 +1085,35 @@ function createMarkerRenderable(marker: MarkerVisual, zoom: number): { root: Con
   drawMarkerIcon(icon, marker.markerType, marker.directionDegrees);
   icon.pivot.set(MARKER_ICON_VIEWBOX / 2, MARKER_ICON_VIEWBOX / 2);
   visual.addChild(icon);
-
-  if (marker.name !== null && marker.name.length > 0) {
-    const caption = new Text({
-      text: marker.name,
-      style: {
-        fill: 0x3f3a33,
-        fontFamily: `${MARKER_CAPTION_FONT_FAMILY}, ${MARKER_CAPTION_FONT_FALLBACK}`,
-        fontSize: markerCaptionFontSizeCss(marker.sizeScale, zoom),
-        fontWeight: 'normal',
-        // Captions are always one natural-width line. Padding protects Norse
-        // glyph overhangs without introducing a fixed texture/crop width.
-        padding: 2,
-        trim: false,
-        wordWrap: false,
-      },
-    });
-    caption.anchor.set(0.5, 0);
-    visual.addChild(caption);
-  }
   applyMarkerVisualTransform(visual, marker, zoom);
   root.addChild(visual);
-  return { root, visual };
+  return { root, visual, caption: createMarkerCaptionRenderable(marker, zoom) };
+}
+
+function createMarkerCaptionRenderable(marker: MarkerVisual, zoom: number): Container | null {
+  if (marker.name === null || marker.name.length === 0) {
+    return null;
+  }
+  const root = new Container();
+  root.position.set(marker.x, marker.y);
+  const caption = new Text({
+    text: marker.name,
+    style: {
+      fill: 0x3f3a33,
+      fontFamily: `${MARKER_CAPTION_FONT_FAMILY}, ${MARKER_CAPTION_FONT_FALLBACK}`,
+      fontSize: markerCaptionFontSizeCss(marker.sizeScale, zoom),
+      fontWeight: 'normal',
+      // Captions are always one natural-width line. Padding protects Norse
+      // glyph overhangs without introducing a fixed texture/crop width.
+      padding: 2,
+      trim: false,
+      wordWrap: false,
+    },
+  });
+  caption.anchor.set(0.5, 0);
+  root.addChild(caption);
+  applyMarkerCaptionTransform(root, marker, zoom);
+  return root;
 }
 
 /** Assigns all marker visual transforms from canonical marker data. */
@@ -910,7 +1123,16 @@ function applyMarkerVisualTransform(visual: Container, marker: Pick<Marker, 'siz
   if (icon !== undefined) {
     icon.scale.set(markerIconLocalScale(marker.sizeScale, zoom));
   }
-  const caption = visual.children[1];
+}
+
+function applyMarkerCaptionTransform(
+  root: Container,
+  marker: Pick<Marker, 'x' | 'y' | 'sizeScale'>,
+  zoom: number,
+): void {
+  root.position.set(marker.x, marker.y);
+  root.scale.set(markerRootWorldScale(zoom));
+  const caption = root.children[0];
   if (caption instanceof Text) {
     caption.style.fontSize = markerCaptionFontSizeCss(marker.sizeScale, zoom);
     caption.position.set(0, markerCaptionOffsetCss(marker.sizeScale, zoom));
@@ -1081,6 +1303,7 @@ function drawGridLine(
   spacing: number,
   width: number,
   isOrigin: boolean,
+  theme: ReturnType<typeof mapVisualTheme>['grid'],
 ): void {
   const coordinate = fromX === toX ? fromX : fromY;
   const gridIndex = Math.round(coordinate / spacing);
@@ -1089,8 +1312,8 @@ function drawGridLine(
     .moveTo(fromX, fromY)
     .lineTo(toX, toY)
     .stroke({
-      color: isOrigin ? 0x667060 : 0x788070,
-      alpha: isOrigin ? 0.32 : isMajor ? 0.24 : 0.16,
+      color: isOrigin ? theme.originColor : isMajor ? theme.majorColor : theme.normalColor,
+      alpha: isOrigin ? theme.originAlpha : isMajor ? theme.majorAlpha : theme.normalAlpha,
       width: isOrigin ? width * 1.75 : isMajor ? width * 1.25 : width,
     });
 }
@@ -1118,6 +1341,7 @@ function createCoastlineFilter(coastlineUniforms: UniformGroup): Filter {
         uniform sampler2D uTexture;
         uniform vec4 uInputPixel;
         uniform float uCoastlineThickness;
+        uniform vec4 uCoastlineCoreColor;
 
         bool isLand(vec4 colour) {
           return colour.a > 0.4 && colour.r > colour.b;
@@ -1161,8 +1385,7 @@ function createCoastlineFilter(coastlineUniforms: UniformGroup): Filter {
           bool farShadow = oceanInCardinalDirections(vTextureCoord, sampleOffset * 3.0);
 
           if (core) {
-            // #3E3A32 at 78% opacity, stored as premultiplied RGBA.
-            finalColor = vec4(0.19, 0.177, 0.153, 0.78);
+            finalColor = uCoastlineCoreColor;
           } else if (nearShadow) {
             finalColor = vec4(0.028, 0.026, 0.023, 0.14);
           } else if (middleShadow) {

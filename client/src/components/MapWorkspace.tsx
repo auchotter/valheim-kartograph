@@ -14,6 +14,8 @@ import { useHudLayout } from '../state/useHudLayout';
 import { clearMarkerInteraction, toggleArmedMarkerType } from '../lib/markerPlacement';
 import { nextPathOpacity, pathOpacityLabel, type PathOpacity } from '../lib/pathVisibility';
 import { readMapUiPreferences, writeMapUiPreferences } from '../lib/mapUiPreferences';
+import { AppearanceSelector } from './AppearanceSelector';
+import { readMapAppearance, writeMapAppearance, type MapAppearance } from '../lib/mapAppearance';
 
 const DEFAULT_BIOME: Biome = 'meadows';
 const DEFAULT_BRUSH_WIDTH = 120;
@@ -27,6 +29,8 @@ export function MapWorkspace() {
   const [biome, setBiome] = useState<Biome>(DEFAULT_BIOME);
   const [brushWidth, setBrushWidth] = useState(DEFAULT_BRUSH_WIDTH);
   const [initialUiPreferences] = useState(() => readMapUiPreferences());
+  const [initialAppearance] = useState<MapAppearance>(() => readMapAppearance());
+  const [appearance, setAppearance] = useState<MapAppearance>(initialAppearance);
   const [gridVisible, setGridVisible] = useState(initialUiPreferences.gridEnabled);
   const [pathOpacity, setPathOpacity] = useState<PathOpacity>(initialUiPreferences.pathOpacity);
   const [protectEnabled, setProtectEnabled] = useState(initialUiPreferences.protectEnabled);
@@ -40,6 +44,10 @@ export function MapWorkspace() {
   useEffect(() => {
     writeMapUiPreferences({ pathOpacity, protectEnabled, gridEnabled: gridVisible });
   }, [gridVisible, pathOpacity, protectEnabled]);
+
+  useEffect(() => {
+    writeMapAppearance(appearance);
+  }, [appearance]);
 
   useEffect(() => {
     const cleared = clearMarkerInteraction();
@@ -276,9 +284,10 @@ export function MapWorkspace() {
   }, [changeTool, requestRedo, requestUndo]);
 
   return (
-    <main className="map-workspace">
+    <main className="map-workspace" data-ui-mode={appearance}>
       <MapCanvas
         ref={canvasRef}
+        appearance={appearance}
         camera={mapSession.camera}
         tool={tool}
         biome={biome}
@@ -349,6 +358,7 @@ export function MapWorkspace() {
             onDuplicateMap={mapSession.duplicateAndSelectMap}
             onDeleteMap={mapSession.deleteExistingMap}
           />
+          <AppearanceSelector mode={appearance} onChange={setAppearance} />
           <aside className="north-indicator" aria-label="Indicates true north" title="Indicates true north">
             <span aria-hidden="true">↑</span>
             <span>N</span>

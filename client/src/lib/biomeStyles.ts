@@ -1,4 +1,5 @@
 import type { Biome } from '../../../shared/domain';
+import type { MapAppearance } from './mapAppearance';
 
 export interface BiomeStyle {
   label: string;
@@ -6,8 +7,10 @@ export interface BiomeStyle {
   baseHex: `#${string}`;
   /** Darker/lighter opaque-tile mark colour. */
   markHex: `#${string}`;
+  /** Snow detail colour used by the mountain and Deep North motifs. */
+  snowHex: `#${string}`;
   tileSize: number;
-  drawPattern: (context: CanvasRenderingContext2D, size: number, markHex: string) => void;
+  drawPattern: (context: CanvasRenderingContext2D, size: number, markHex: string, snowHex: string) => void;
 }
 
 export const BIOME_STYLES: Readonly<Record<Biome, BiomeStyle>> = {
@@ -15,6 +18,7 @@ export const BIOME_STYLES: Readonly<Record<Biome, BiomeStyle>> = {
     label: 'Ocean',
     baseHex: '#B7CDD2',
     markHex: '#6F929E',
+    snowHex: '#F4F7F7',
     tileSize: 192,
     drawPattern: drawOceanPattern,
   },
@@ -22,6 +26,7 @@ export const BIOME_STYLES: Readonly<Record<Biome, BiomeStyle>> = {
     label: 'Meadows',
     baseHex: '#91A96B',
     markHex: '#6F8754',
+    snowHex: '#F4F7F7',
     tileSize: 192,
     drawPattern: drawMeadowPattern,
   },
@@ -29,6 +34,7 @@ export const BIOME_STYLES: Readonly<Record<Biome, BiomeStyle>> = {
     label: 'Black Forest',
     baseHex: '#365E4B',
     markHex: '#244536',
+    snowHex: '#F4F7F7',
     tileSize: 192,
     drawPattern: drawBlackForestPattern,
   },
@@ -36,6 +42,7 @@ export const BIOME_STYLES: Readonly<Record<Biome, BiomeStyle>> = {
     label: 'Swamp',
     baseHex: '#78684B',
     markHex: '#584C38',
+    snowHex: '#F4F7F7',
     tileSize: 192,
     drawPattern: drawSwampPattern,
   },
@@ -43,6 +50,7 @@ export const BIOME_STYLES: Readonly<Record<Biome, BiomeStyle>> = {
     label: 'Mountains',
     baseHex: '#D9DEE1',
     markHex: '#A4ADB4',
+    snowHex: '#F4F7F7',
     tileSize: 192,
     drawPattern: drawMountainPattern,
   },
@@ -50,6 +58,7 @@ export const BIOME_STYLES: Readonly<Record<Biome, BiomeStyle>> = {
     label: 'Plains',
     baseHex: '#C4A75E',
     markHex: '#9B7F3F',
+    snowHex: '#F4F7F7',
     tileSize: 192,
     drawPattern: drawPlainsPattern,
   },
@@ -57,6 +66,7 @@ export const BIOME_STYLES: Readonly<Record<Biome, BiomeStyle>> = {
     label: 'Mistlands',
     baseHex: '#81798D',
     markHex: '#625A70',
+    snowHex: '#F4F7F7',
     tileSize: 192,
     drawPattern: drawMistlandsPattern,
   },
@@ -64,6 +74,7 @@ export const BIOME_STYLES: Readonly<Record<Biome, BiomeStyle>> = {
     label: 'Ashlands',
     baseHex: '#924E3E',
     markHex: '#5F332B',
+    snowHex: '#F4F7F7',
     tileSize: 192,
     drawPattern: drawAshlandsPattern,
   },
@@ -71,6 +82,7 @@ export const BIOME_STYLES: Readonly<Record<Biome, BiomeStyle>> = {
     label: 'Lava',
     baseHex: '#D79A35',
     markHex: '#A64B27',
+    snowHex: '#F4F7F7',
     tileSize: 192,
     drawPattern: drawLavaPattern,
   },
@@ -78,9 +90,25 @@ export const BIOME_STYLES: Readonly<Record<Biome, BiomeStyle>> = {
     label: 'Deep North',
     baseHex: '#5F8396',
     markHex: '#B7CDD2',
+    // The original Deep North motif uses its mark colour for the snowflake
+    // details; retaining it keeps Modern pixel-for-pixel unchanged.
+    snowHex: '#B7CDD2',
     tileSize: 192,
     drawPattern: drawDeepNorthPattern,
   },
+};
+
+const IMMERSIVE_BIOME_COLORS: Readonly<Record<Biome, Pick<BiomeStyle, 'baseHex' | 'markHex' | 'snowHex'>>> = {
+  ocean: { baseHex: '#71959A', markHex: '#496E72', snowHex: '#E9E3D3' },
+  meadows: { baseHex: '#899A52', markHex: '#5D6D37', snowHex: '#E9E3D3' },
+  black_forest: { baseHex: '#344E38', markHex: '#223527', snowHex: '#E9E3D3' },
+  swamp: { baseHex: '#6A5938', markHex: '#473B28', snowHex: '#E9E3D3' },
+  mountains: { baseHex: '#D2C9B5', markHex: '#938D80', snowHex: '#E9E3D3' },
+  plains: { baseHex: '#C19A4F', markHex: '#866831', snowHex: '#E9E3D3' },
+  mistlands: { baseHex: '#74677B', markHex: '#51475B', snowHex: '#E9E3D3' },
+  ashlands: { baseHex: '#8D4936', markHex: '#603025', snowHex: '#E9E3D3' },
+  lava: { baseHex: '#CD742C', markHex: '#903E22', snowHex: '#E9E3D3' },
+  deep_north: { baseHex: '#89A4A7', markHex: '#5D777B', snowHex: '#E9E3D3' },
 };
 
 /** Deliberate toolbar order; this is not derived from object-key insertion order. */
@@ -97,12 +125,16 @@ export const BIOMES: readonly Biome[] = [
   'deep_north',
 ];
 
-export function biomeStyle(biome: Biome): BiomeStyle {
-  return BIOME_STYLES[biome];
+export function biomeStyle(biome: Biome, appearance: MapAppearance = 'modern'): BiomeStyle {
+  const style = BIOME_STYLES[biome];
+  if (appearance === 'modern') {
+    return style;
+  }
+  return { ...style, ...IMMERSIVE_BIOME_COLORS[biome] };
 }
 
-export function biomeColor(biome: Biome): number {
-  return Number.parseInt(biomeStyle(biome).baseHex.slice(1), 16);
+export function biomeColor(biome: Biome, appearance: MapAppearance = 'modern'): number {
+  return Number.parseInt(biomeStyle(biome, appearance).baseHex.slice(1), 16);
 }
 
 function prepareStroke(context: CanvasRenderingContext2D, color: string, alpha: number, width: number) {
@@ -157,7 +189,7 @@ function drawSwampPattern(context: CanvasRenderingContext2D, size: number, markH
   context.globalAlpha = 1;
 }
 
-function drawMountainPattern(context: CanvasRenderingContext2D, size: number, markHex: string): void {
+function drawMountainPattern(context: CanvasRenderingContext2D, size: number, markHex: string, snowHex: string): void {
   prepareStroke(context, markHex, 0.58, 1.25);
   for (let index = 0; index < 9; index += 1) {
     const x = 10 + ((index * 47) % (size - 30));
@@ -170,7 +202,7 @@ function drawMountainPattern(context: CanvasRenderingContext2D, size: number, ma
     context.lineTo(x - 2, y + 9);
     context.stroke();
   }
-  prepareStroke(context, '#F4F7F7', 0.72, 1);
+  prepareStroke(context, snowHex, 0.72, 1);
   for (let index = 0; index < 5; index += 1) {
     const x = 19 + ((index * 67) % (size - 38));
     const y = 20 + ((index * 43) % (size - 38));
@@ -234,9 +266,10 @@ function drawLavaPattern(context: CanvasRenderingContext2D, size: number, markHe
   context.globalAlpha = 1;
 }
 
-function drawDeepNorthPattern(context: CanvasRenderingContext2D, size: number, markHex: string): void {
+function drawDeepNorthPattern(context: CanvasRenderingContext2D, size: number, markHex: string, snowHex: string): void {
   prepareStroke(context, markHex, 0.4, 1);
   for (let index = 0; index < 10; index += 1) {
+    prepareStroke(context, markHex, 0.4, 1);
     const x = 12 + ((index * 53) % (size - 24));
     const y = 12 + ((index * 73) % (size - 24));
     context.beginPath();
@@ -246,6 +279,7 @@ function drawDeepNorthPattern(context: CanvasRenderingContext2D, size: number, m
     context.lineTo(x - 5, y);
     context.closePath();
     context.stroke();
+    prepareStroke(context, snowHex, 0.58, 1);
     snowflake(context, x + 13, y + 7, 2.5);
   }
   context.globalAlpha = 1;

@@ -8,6 +8,7 @@ import {
 import type { PointerEvent, WheelEvent } from 'react';
 import type { Biome, BiomeStroke, Marker, Path, PathGeometryType, WorldPoint } from '../../../../shared/domain';
 import { biomeColor } from '../../lib/biomeStyles';
+import type { MapAppearance } from '../../lib/mapAppearance';
 import type { CompletedBrushGesture } from '../../lib/biomeStroke';
 import {
   panCameraByScreenDelta,
@@ -50,6 +51,7 @@ export interface MapCanvasHandle {
 }
 
 interface MapCanvasProps {
+  appearance: MapAppearance;
   camera: Camera;
   tool: MapTool;
   biome: Biome;
@@ -150,6 +152,7 @@ interface PositionedEvent {
 
 export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function MapCanvas(
   {
+    appearance,
     camera,
     tool,
     biome,
@@ -209,6 +212,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   const biomeRef = useRef(biome);
   const brushWidthRef = useRef(brushWidth);
   const gridVisibleRef = useRef(gridVisible);
+  const appearanceRef = useRef<MapAppearance>(appearance);
   const panStateRef = useRef<PanState | null>(null);
   const drawingStateRef = useRef<DrawingState | null>(null);
   const pathDrawingStateRef = useRef<PathDrawingState | null>(null);
@@ -241,7 +245,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         visible,
         point,
         brushWidth: brushWidthRef.current,
-        color: currentTool === 'eraser' ? 0x6c665d : biomeColor(biomeRef.current),
+        color: currentTool === 'eraser' ? 0x6c665d : biomeColor(biomeRef.current, appearanceRef.current),
       });
     },
     [],
@@ -410,6 +414,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   }, [gridVisible]);
 
   useEffect(() => {
+    appearanceRef.current = appearance;
+    rendererRef.current?.setAppearance(appearance);
+    updateBrushCursor(pointerWorldRef.current);
+  }, [appearance, updateBrushCursor]);
+
+  useEffect(() => {
     toolRef.current = tool;
     pathGeometryTypeRef.current = pathGeometryType;
     armedMarkerTypeRef.current = armedMarkerType;
@@ -441,7 +451,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     const renderer = new PixiMapRenderer();
     let disposed = false;
 
-    void renderer.initialize(host).then(() => {
+    void renderer.initialize(host, appearanceRef.current).then(() => {
       if (disposed) {
         renderer.destroy();
         return;

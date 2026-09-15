@@ -8,8 +8,8 @@ export const HUD_MEDIUM_MIN_PX = 800;
 export const HUD_WIDE_QUERY = `(min-width: ${HUD_WIDE_MIN_PX}px)`;
 export const HUD_MEDIUM_QUERY = `(min-width: ${HUD_MEDIUM_MIN_PX}px)`;
 
-const MEDIUM_UTILITY_IDS = new Set(['reset-view', 'zoom-to-one', 'undo', 'redo', 'grid', 'paths', 'protect']);
-const NARROW_UTILITY_IDS = new Set(['undo', 'paths', 'protect']);
+const MEDIUM_UTILITY_IDS = new Set(['map-library', 'reset-view', 'zoom-to-one', 'undo', 'redo', 'grid', 'paths', 'protect']);
+const NARROW_UTILITY_IDS = new Set(['map-library', 'undo', 'paths', 'protect']);
 const NARROW_TOOL_IDS = new Set(['pan', 'path', 'select']);
 
 export function hudLayoutMode(wideMatches: boolean, mediumMatches: boolean): HudLayoutMode {

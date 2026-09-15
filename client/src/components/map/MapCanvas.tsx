@@ -31,6 +31,7 @@ import {
   type CompletedPathGesture,
 } from '../../lib/pathGeometry';
 import { hitTestMarker, movedMarker } from '../../lib/markerGeometry';
+import { isVegvisirMarker } from '../../lib/markerIcons';
 import { initialPointerGesture, shouldClearPanSelection } from '../../lib/pointerGesture';
 import type { CompletedMarkerGesture } from '../../lib/markerObject';
 import type { MapTool } from '../../state/mapTool';
@@ -294,6 +295,15 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     rendererRef.current?.setMarkerPlacementPreview(preview);
   }, []);
 
+  const updateMarkerHover = useCallback((point: WorldPoint | null) => {
+    const hovered = point === null
+      ? null
+      : hitTestMarker(markersRef.current, point, cameraRef.current.zoom);
+    // Hover swaps artwork only for Vegvisir. Keeping ordinary markers out of
+    // this retained-renderer path prevents needless marker-tree rebuilds.
+    rendererRef.current?.setHoveredMarker(hovered !== null && isVegvisirMarker(hovered.markerType) ? hovered.id : null);
+  }, []);
+
   const worldPointFromScreen = useCallback((screenPoint: ScreenPoint): WorldPoint | null => {
     const host = hostRef.current;
     if (host === null || host.clientWidth <= 0 || host.clientHeight <= 0) {
@@ -314,10 +324,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         onCursorWorldChange(point);
         updateBrushCursor(point);
         updateMarkerPlacementPreview(point);
+        updateMarkerHover(point);
       }
       return point;
     },
-    [onCursorWorldChange, updateBrushCursor, updateMarkerPlacementPreview, worldPointFromScreen],
+    [onCursorWorldChange, updateBrushCursor, updateMarkerHover, updateMarkerPlacementPreview, worldPointFromScreen],
   );
 
   useEffect(() => {
@@ -507,12 +518,18 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
           clearMarkerPlacement();
           return;
         }
-        if (selectedMarkerIdRef.current !== null) {
+        if (activePointerGestureRef.current !== null) {
+          // A drawing/editing gesture is a transient interaction. Escape
+          // abandons its preview before a later Escape can choose Pan.
           event.preventDefault();
-          postPlacementMarkerSelectRef.current = false;
-          selectedMarkerIdRef.current = null;
-          rendererRef.current?.setSelectedMarker(null);
-          onMarkerSelectionChange(null);
+          cancelActivePointerGesture();
+          return;
+        }
+        if (selectedMarkerIdRef.current !== null || selectedPathIdRef.current !== null || toolRef.current !== 'pan') {
+          event.preventDefault();
+          // No transient workspace interaction owns Escape, so use the same
+          // neutral state transition as choosing Pan from the tool toolbar.
+          onToolChange('pan');
           return;
         }
       }
@@ -562,7 +579,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       window.removeEventListener('blur', onWindowBlur);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [cancelActivePointerGesture, clearMarkerPlacement, onMarkerDelete, onMarkerSelectionChange, onPathDelete, onPathSelectionChange]);
+  }, [cancelActivePointerGesture, clearMarkerPlacement, onMarkerDelete, onMarkerSelectionChange, onPathDelete, onPathSelectionChange, onToolChange]);
 
   useImperativeHandle(
     ref,
@@ -1165,6 +1182,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         if (markerDragStateRef.current === null && markerPlacementStateRef.current === null) {
           updateMarkerPlacementPreview(null);
         }
+        updateMarkerHover(null);
       }}
       onPointerMove={handlePointerMove}
       onPointerUp={(event) => endPointerInteraction(event, false)}

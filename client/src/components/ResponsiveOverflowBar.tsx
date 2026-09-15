@@ -35,6 +35,8 @@ export function ResponsiveOverflowBar({ ariaLabel, className = '', items, mode, 
     };
     const closeOnEscape = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
         setOpen(false);
       }
     };

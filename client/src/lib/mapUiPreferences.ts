@@ -2,17 +2,22 @@ import type { PathOpacity } from './pathVisibility';
 
 export const MAP_UI_PREFERENCES_STORAGE_KEY = 'valheim-map:ui:v1';
 export const MAP_UI_PREFERENCES_VERSION = 1;
+export type DebugCoordinateMode = 'cursor' | 'centre';
 
 export interface MapUiPreferences {
   pathOpacity: PathOpacity;
   protectEnabled: boolean;
   gridEnabled: boolean;
+  debugOpen: boolean;
+  debugCoordinateMode: DebugCoordinateMode;
 }
 
 export const DEFAULT_MAP_UI_PREFERENCES: MapUiPreferences = {
   pathOpacity: 1,
   protectEnabled: true,
   gridEnabled: false,
+  debugOpen: false,
+  debugCoordinateMode: 'cursor',
 };
 
 export interface MapUiStorage {
@@ -107,7 +112,9 @@ function parseStoredMapUiPreferences(raw: string | null | undefined): MapUiPrefe
     if (
       (value.pathOpacity !== 0 && value.pathOpacity !== 0.5 && value.pathOpacity !== 1) ||
       typeof value.protectEnabled !== 'boolean' ||
-      typeof value.gridEnabled !== 'boolean'
+      typeof value.gridEnabled !== 'boolean' ||
+      (value.debugOpen !== undefined && typeof value.debugOpen !== 'boolean') ||
+      (value.debugCoordinateMode !== undefined && value.debugCoordinateMode !== 'cursor' && value.debugCoordinateMode !== 'centre')
     ) {
       return null;
     }
@@ -115,6 +122,8 @@ function parseStoredMapUiPreferences(raw: string | null | undefined): MapUiPrefe
       pathOpacity: value.pathOpacity,
       protectEnabled: value.protectEnabled,
       gridEnabled: value.gridEnabled,
+      debugOpen: value.debugOpen ?? DEFAULT_MAP_UI_PREFERENCES.debugOpen,
+      debugCoordinateMode: value.debugCoordinateMode ?? DEFAULT_MAP_UI_PREFERENCES.debugCoordinateMode,
     };
   } catch {
     return null;

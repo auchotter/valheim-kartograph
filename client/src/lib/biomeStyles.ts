@@ -98,6 +98,14 @@ export const BIOME_STYLES: Readonly<Record<Biome, BiomeStyle>> = {
   },
 };
 
+// Deep North is intentionally frozen independently from Mountain. This keeps
+// the approved pale icy palette stable if the neighboring snow biome changes.
+const IMMERSIVE_DEEP_NORTH_APPROVED = {
+  baseHex: '#E5E0D5' as const,
+  markHex: '#AAA69C' as const,
+  snowHex: '#FAF9F5' as const,
+};
+
 const IMMERSIVE_BIOME_COLORS: Readonly<Record<Biome, Pick<BiomeStyle, 'baseHex' | 'markHex' | 'snowHex'>>> = {
   ocean: { baseHex: '#71959A', markHex: '#496E72', snowHex: '#E9E3D3' },
   meadows: { baseHex: '#899A52', markHex: '#5D6D37', snowHex: '#E9E3D3' },
@@ -108,7 +116,7 @@ const IMMERSIVE_BIOME_COLORS: Readonly<Record<Biome, Pick<BiomeStyle, 'baseHex' 
   mistlands: { baseHex: '#74677B', markHex: '#51475B', snowHex: '#E9E3D3' },
   ashlands: { baseHex: '#8D4936', markHex: '#603025', snowHex: '#E9E3D3' },
   lava: { baseHex: '#CD742C', markHex: '#903E22', snowHex: '#E9E3D3' },
-  deep_north: { baseHex: '#89A4A7', markHex: '#5D777B', snowHex: '#E9E3D3' },
+  deep_north: IMMERSIVE_DEEP_NORTH_APPROVED,
 };
 
 /** Deliberate toolbar order; this is not derived from object-key insertion order. */

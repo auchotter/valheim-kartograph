@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   MapLayer,
+  type Marker,
   type MapObject,
   type MapObjectBase,
   type MapOperation,
@@ -98,7 +99,27 @@ export class MapService {
         deletedAt: null,
       };
       this.repository.insertMap(map);
-      return map;
+      const spawn: Marker = {
+        id: randomUUID(),
+        mapId: map.id,
+        objectType: 'marker',
+        layer: MapLayer.Markers,
+        orderKey: this.repository.allocateOrderKey(map.id),
+        objectVersion: 1,
+        ...pointBounds(0, 0),
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+        markerType: 'spawn',
+        x: 0,
+        y: 0,
+        name: null,
+        note: null,
+        sizeScale: 1,
+        directionDegrees: null,
+      };
+      this.repository.insertObject(spawn);
+      return this.requireActiveMap(map.id);
     });
   }
 

@@ -34,7 +34,7 @@ try {
   assert.equal(undoneCreate.statusCode, 200);
   assert.equal(undoneCreate.json.undone, true);
   assert.equal(undoneCreate.json.action, 'object.delete');
-  assert.equal((await state(map.id)).objects.length, 0);
+  assert.equal((await state(map.id)).objects.length, 1);
 
   const retryUndo = await request('POST', `/api/maps/${map.id}/undo`, {
     actorId: actorA,
@@ -149,7 +149,9 @@ try {
     assert.equal(result.json.undone, true);
   }
   const remainingHistory = await state(historyMap.id);
-  assert.deepEqual(remainingHistory.objects.map((object: any) => object.id), [historyMarkers[0].id]);
+  assert.equal(remainingHistory.objects.length, 2);
+  assert.equal(remainingHistory.objects.some((object: any) => object.id === historyMarkers[0].id), true);
+  assert.equal(remainingHistory.objects.filter((object: any) => object.objectType === 'marker' && object.markerType === 'spawn').length, 1);
 
   const operationRows = database
     .prepare('SELECT undo_of_operation_id FROM map_operations WHERE map_id = ? AND undo_of_operation_id IS NOT NULL')

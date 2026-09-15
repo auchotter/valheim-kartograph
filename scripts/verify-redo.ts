@@ -26,7 +26,7 @@ try {
   const redoCreateClient = id(clientNumber++);
   const redoCreate = await redo(map.id, actorA, redoCreateClient);
   assert.equal(redoCreate.json.redone, true);
-  assert.equal((await state(map.id)).objects.length, 1);
+  assert.equal((await state(map.id)).objects.length, 2);
   const redoRetry = await redo(map.id, actorA, redoCreateClient);
   assert.equal(redoRetry.json.redone, true);
   assert.equal(redoRetry.json.redoOperationId, redoCreate.json.redoOperationId);
@@ -34,7 +34,7 @@ try {
 
   const undoAfterRedo = await undo(map.id, actorA);
   assert.equal(undoAfterRedo.json.undone, true);
-  assert.equal((await state(map.id)).objects.length, 0);
+  assert.equal((await state(map.id)).objects.length, 1);
 
   const updated = { ...marker, id: id(11), x: 30, y: 40 };
   await createObject(map.id, actorA, { ...marker, id: updated.id });

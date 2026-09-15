@@ -16,7 +16,8 @@ import { mapVisualTheme } from '../../lib/mapVisualTheme';
 import { destroyParchmentTextures, parchmentTextures } from '../../lib/parchmentTextures';
 import { chooseGridSpacing } from '../../lib/grid';
 import { pathPolyline } from '../../lib/pathGeometry';
-import { drawMarkerIcon, MARKER_ICON_VIEWBOX } from '../../lib/markerIcons';
+import { isVegvisirMarker, normaliseDirectionDegrees } from '../../lib/markerIcons';
+import { loadMarkerTexture, markerTexture } from '../../lib/markerTextures';
 import {
   dottedPathVisualStyle,
   pathColorForVisibleBiome,
@@ -24,11 +25,11 @@ import {
 } from '../../lib/pathVisualStyle';
 import { orderTerrainStrokes, resolveVisibleBiomeAtPointInOrder } from '../../lib/terrainVisibility';
 import {
-  effectiveMarkerVisualDiameterCss,
   markerCaptionFontSizeCss,
   markerCaptionOffsetCss,
-  markerIconLocalScale,
+  markerCaptionVisible,
   markerRootWorldScale,
+  markerVisualDiameterCss,
 } from '../../lib/markerGeometry';
 import {
   loadMarkerCaptionFont,
@@ -129,6 +130,7 @@ export class PixiMapRenderer {
   private readonly brushCursor = new Graphics();
   private readonly coastlineUniforms = new UniformGroup({
     uCoastlineThickness: { value: 1, type: 'f32' },
+    uCoastlineFeatherScale: { value: 1, type: 'f32' },
     uCoastlineCoreColor: { value: [0.19, 0.177, 0.153, 0.78], type: 'vec4<f32>' },
   });
   private coastlineFilter: Filter | null = null;
@@ -143,9 +145,11 @@ export class PixiMapRenderer {
   private pathOpacity = 1;
   private renderedPathZoom: number | null = null;
   private selectedMarkerId: string | null = null;
+  private hoveredMarkerId: string | null = null;
   private markerEditPreview: Marker | null = null;
   private markerPlacementPreview: MarkerPlacementPreview | null = null;
   private markerPlacementNode: Container | null = null;
+  private markerPlacementVisual: Container | null = null;
   private cursor: BrushCursor | null = null;
   private gridVisible = false;
   private appearance: MapAppearance = 'modern';
@@ -369,7 +373,19 @@ export class PixiMapRenderer {
   setSelectedMarker(markerId: string | null): void {
     this.selectedMarkerId = markerId;
     if (this.initialized) {
-      this.rebuildMarkerSelection();
+      this.rebuildMarkers();
+    }
+    this.requestStageRender();
+  }
+
+  /** Hover is local presentation only; Vegvisir swaps to its directional art. */
+  setHoveredMarker(markerId: string | null): void {
+    if (markerId === this.hoveredMarkerId) {
+      return;
+    }
+    this.hoveredMarkerId = markerId;
+    if (this.initialized) {
+      this.rebuildMarkers();
     }
     this.requestStageRender();
   }
@@ -564,8 +580,10 @@ export class PixiMapRenderer {
     this.coastlineSurface.scale.set(1);
     this.classificationDebugSurface.scale.set(1);
     // The filter samples physical classification texels. Express the desired
-    // 1.9 CSS-pixel core in physical pixels without scaling the displayed sprite.
-    this.coastlineUniforms.uniforms.uCoastlineThickness = resolution * 1.9;
+    // screen-consistent core in physical pixels without scaling the sprite.
+    this.coastlineUniforms.uniforms.uCoastlineThickness = resolution * (
+      this.appearance === 'immersive' ? 2.5 : 1.9
+    );
   }
 
   private applyCameraTransform(): void {
@@ -599,6 +617,7 @@ export class PixiMapRenderer {
     }
     const theme = mapVisualTheme(this.appearance);
     this.coastlineUniforms.uniforms.uCoastlineCoreColor = [...theme.coastlineCore];
+    this.coastlineUniforms.uniforms.uCoastlineFeatherScale = this.appearance === 'immersive' ? 0.4 : 1;
     this.rebuildGrid();
     this.addOriginIndicator();
   }
@@ -609,6 +628,9 @@ export class PixiMapRenderer {
     }
 
     const stage = this.application.stage;
+    const theme = mapVisualTheme(this.appearance);
+    this.coastlineUniforms.uniforms.uCoastlineCoreColor = [...theme.coastlineCore];
+    this.coastlineUniforms.uniforms.uCoastlineFeatherScale = this.appearance === 'immersive' ? 0.4 : 1;
     if (this.appearance === 'immersive') {
       const parchmentSurfaceLayers = this.ensureParchmentSurfaceLayers();
       this.parchmentSurfaceContainer.alpha = 1;
@@ -834,7 +856,7 @@ export class PixiMapRenderer {
       .filter((marker) => marker.deletedAt === null)
       .sort((left, right) => left.layer - right.layer || left.orderKey - right.orderKey);
     for (const marker of ordered) {
-      const renderable = createMarkerRenderable(marker, this.camera?.zoom ?? 1);
+      const renderable = this.createMarkerRenderable(marker, this.camera?.zoom ?? 1);
       this.markerShapes.addChild(renderable.root);
       if (renderable.caption !== null) {
         this.labels.addChild(renderable.caption);
@@ -850,11 +872,12 @@ export class PixiMapRenderer {
   private rebuildMarkerEditPreview(): void {
     destroyChildren(this.markerEdit);
     destroyChildren(this.markerEditCaption);
+    const captionsVisible = markerCaptionVisible(this.camera?.zoom ?? 1);
     for (const node of this.markerNodes.values()) {
       node.visible = true;
     }
     for (const caption of this.markerCaptionNodes.values()) {
-      caption.visible = true;
+      caption.visible = captionsVisible;
     }
     if (this.markerEditPreview === null) {
       return;
@@ -867,7 +890,7 @@ export class PixiMapRenderer {
     if (originalCaption !== undefined) {
       originalCaption.visible = false;
     }
-    const renderable = createMarkerRenderable(this.markerEditPreview, this.camera?.zoom ?? 1);
+    const renderable = this.createMarkerRenderable(this.markerEditPreview, this.camera?.zoom ?? 1);
     this.markerEdit.addChild(renderable.root);
     if (renderable.caption !== null) {
       this.markerEditCaption.addChild(renderable.caption);
@@ -877,11 +900,12 @@ export class PixiMapRenderer {
   private rebuildMarkerPlacementPreview(): void {
     destroyChildren(this.markerPlacement);
     this.markerPlacementNode = null;
+    this.markerPlacementVisual = null;
     if (this.markerPlacementPreview === null) {
       return;
     }
     const preview = this.markerPlacementPreview;
-    const renderable = createMarkerRenderable({
+    const renderable = this.createMarkerRenderable({
       markerType: preview.markerType,
       x: preview.point[0],
       y: preview.point[1],
@@ -892,6 +916,41 @@ export class PixiMapRenderer {
     renderable.root.alpha = 0.68;
     this.markerPlacement.addChild(renderable.root);
     this.markerPlacementNode = renderable.root;
+    this.markerPlacementVisual = renderable.visual;
+  }
+
+  private createMarkerRenderable(marker: MarkerVisual, zoom: number): MarkerRenderable {
+    const root = new Container();
+    root.position.set(marker.x, marker.y);
+    const visual = new Container();
+    const directionalVariant = isVegvisirMarker(marker.markerType) &&
+      ('id' in marker && (marker.id === this.selectedMarkerId || marker.id === this.hoveredMarkerId));
+    const icon = new Sprite(markerTexture(marker.markerType, directionalVariant));
+    icon.anchor.set(0.5);
+    if (isVegvisirMarker(marker.markerType)) {
+      icon.rotation = (normaliseDirectionDegrees(marker.directionDegrees ?? 0) * Math.PI) / 180;
+    }
+    // Texture loading remains lazy and cached. Until it resolves the icon is
+    // transparent; the existing retained stage is repainted once on arrival.
+    void loadMarkerTexture(marker.markerType, directionalVariant)
+      .then((texture) => {
+        if (icon.destroyed) {
+          return;
+        }
+        icon.texture = texture;
+        // PNGs have different native dimensions. Reapply the complete
+        // current camera-scale transform instead of retaining an asset-native scale
+        // inside the camera-scaled marker hierarchy.
+        applyMarkerVisualTransform(visual, this.camera?.zoom ?? zoom);
+        this.requestStageRender();
+      })
+      // A bad or unavailable asset must leave a transparent marker placeholder,
+      // never reject into React/Pixi's initial retained render.
+      .catch(() => undefined);
+    visual.addChild(icon);
+    applyMarkerVisualTransform(visual, zoom);
+    root.addChild(visual);
+    return { root, visual, caption: createMarkerCaptionRenderable(marker, zoom) };
   }
 
   private rebuildMarkerSelection(): void {
@@ -913,7 +972,7 @@ export class PixiMapRenderer {
     visual.scale.set(markerRootWorldScale(zoom));
     visual
       .addChild(new Graphics()
-        .circle(0, 0, effectiveMarkerVisualDiameterCss(selected.sizeScale, zoom) * 0.68 + 4)
+        .circle(0, 0, markerVisualDiameterCss(zoom) * 0.68 + 4)
         .stroke({ color: 0x81745f, alpha: 0.72, width: 1.2 }));
     root.addChild(visual);
     this.markerSelection.addChild(root);
@@ -924,7 +983,7 @@ export class PixiMapRenderer {
     for (const marker of this.markerObjects) {
       const visual = this.markerVisualNodes.get(marker.id);
       if (visual !== undefined) {
-        applyMarkerVisualTransform(visual, marker, zoom);
+        applyMarkerVisualTransform(visual, zoom);
       }
       const caption = this.markerCaptionNodes.get(marker.id);
       if (caption !== undefined) {
@@ -934,14 +993,14 @@ export class PixiMapRenderer {
     const editRoot = this.markerEdit.children[0];
     const editVisual = editRoot?.children[0];
     if (editVisual instanceof Container && this.markerEditPreview !== null) {
-      applyMarkerVisualTransform(editVisual, this.markerEditPreview, zoom);
+      applyMarkerVisualTransform(editVisual, zoom);
     }
     const editCaption = this.markerEditCaption.children[0];
     if (editCaption instanceof Container && this.markerEditPreview !== null) {
       applyMarkerCaptionTransform(editCaption, this.markerEditPreview, zoom);
     }
-    if (this.markerPlacementPreview !== null) {
-      this.rebuildMarkerPlacementPreview();
+    if (this.markerPlacementVisual !== null) {
+      applyMarkerVisualTransform(this.markerPlacementVisual, zoom);
     }
   }
 
@@ -1076,20 +1135,6 @@ interface MarkerRenderable {
   caption: Container | null;
 }
 
-function createMarkerRenderable(marker: MarkerVisual, zoom: number): MarkerRenderable {
-  const root = new Container();
-  root.position.set(marker.x, marker.y);
-  const visual = new Container();
-
-  const icon = new Graphics();
-  drawMarkerIcon(icon, marker.markerType, marker.directionDegrees);
-  icon.pivot.set(MARKER_ICON_VIEWBOX / 2, MARKER_ICON_VIEWBOX / 2);
-  visual.addChild(icon);
-  applyMarkerVisualTransform(visual, marker, zoom);
-  root.addChild(visual);
-  return { root, visual, caption: createMarkerCaptionRenderable(marker, zoom) };
-}
-
 function createMarkerCaptionRenderable(marker: MarkerVisual, zoom: number): Container | null {
   if (marker.name === null || marker.name.length === 0) {
     return null;
@@ -1101,7 +1146,7 @@ function createMarkerCaptionRenderable(marker: MarkerVisual, zoom: number): Cont
     style: {
       fill: 0x3f3a33,
       fontFamily: `${MARKER_CAPTION_FONT_FAMILY}, ${MARKER_CAPTION_FONT_FALLBACK}`,
-      fontSize: markerCaptionFontSizeCss(marker.sizeScale, zoom),
+      fontSize: markerCaptionFontSizeCss(zoom),
       fontWeight: 'normal',
       // Captions are always one natural-width line. Padding protects Norse
       // glyph overhangs without introducing a fixed texture/crop width.
@@ -1116,26 +1161,33 @@ function createMarkerCaptionRenderable(marker: MarkerVisual, zoom: number): Cont
   return root;
 }
 
-/** Assigns all marker visual transforms from canonical marker data. */
-function applyMarkerVisualTransform(visual: Container, marker: Pick<Marker, 'sizeScale'>, zoom: number): void {
+/** Assigns the retained marker visual's screen-space camera transform. */
+function applyMarkerVisualTransform(visual: Container, zoom: number): void {
   visual.scale.set(markerRootWorldScale(zoom));
   const icon = visual.children[0];
-  if (icon !== undefined) {
-    icon.scale.set(markerIconLocalScale(marker.sizeScale, zoom));
+  if (icon instanceof Sprite) {
+    scaleMarkerSpriteToZoomScale(icon, zoom);
   }
+}
+
+/** Fits a PNG's longest native edge into the current local zoom-scaled extent. */
+function scaleMarkerSpriteToZoomScale(icon: Sprite, zoom: number): void {
+  const longestNativeEdge = Math.max(icon.texture.orig.width, icon.texture.orig.height, 1);
+  icon.scale.set(markerVisualDiameterCss(zoom) / longestNativeEdge);
 }
 
 function applyMarkerCaptionTransform(
   root: Container,
-  marker: Pick<Marker, 'x' | 'y' | 'sizeScale'>,
+  marker: Pick<Marker, 'x' | 'y'>,
   zoom: number,
 ): void {
   root.position.set(marker.x, marker.y);
   root.scale.set(markerRootWorldScale(zoom));
   const caption = root.children[0];
   if (caption instanceof Text) {
-    caption.style.fontSize = markerCaptionFontSizeCss(marker.sizeScale, zoom);
-    caption.position.set(0, markerCaptionOffsetCss(marker.sizeScale, zoom));
+    root.visible = markerCaptionVisible(zoom);
+    caption.style.fontSize = markerCaptionFontSizeCss(zoom);
+    caption.position.set(0, markerCaptionOffsetCss(zoom));
   }
 }
 
@@ -1341,6 +1393,7 @@ function createCoastlineFilter(coastlineUniforms: UniformGroup): Filter {
         uniform sampler2D uTexture;
         uniform vec4 uInputPixel;
         uniform float uCoastlineThickness;
+        uniform float uCoastlineFeatherScale;
         uniform vec4 uCoastlineCoreColor;
 
         bool isLand(vec4 colour) {
@@ -1380,9 +1433,9 @@ function createCoastlineFilter(coastlineUniforms: UniformGroup): Filter {
           bool core = oceanInEightDirections(vTextureCoord, sampleOffset);
           // Three inexpensive four-direction bands fade the land-only shadow
           // from the core to roughly 5.7 CSS pixels into the land interior.
-          bool nearShadow = oceanInCardinalDirections(vTextureCoord, sampleOffset * 1.35);
-          bool middleShadow = oceanInCardinalDirections(vTextureCoord, sampleOffset * 2.1);
-          bool farShadow = oceanInCardinalDirections(vTextureCoord, sampleOffset * 3.0);
+          bool nearShadow = oceanInCardinalDirections(vTextureCoord, sampleOffset * 1.35 * uCoastlineFeatherScale);
+          bool middleShadow = oceanInCardinalDirections(vTextureCoord, sampleOffset * 2.1 * uCoastlineFeatherScale);
+          bool farShadow = oceanInCardinalDirections(vTextureCoord, sampleOffset * 3.0 * uCoastlineFeatherScale);
 
           if (core) {
             finalColor = uCoastlineCoreColor;

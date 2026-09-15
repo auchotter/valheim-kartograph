@@ -30,6 +30,7 @@ button {
 }
 
 .map-workspace {
+  --hud-edge-inset: 14px;
   position: relative;
   width: 100%;
   height: 100%;
@@ -106,8 +107,7 @@ button {
 
 .map-controls,
 .map-toolbar,
-.map-top-hud__right,
-.map-debug {
+.map-top-hud__right {
   position: absolute;
   z-index: 1;
   color: #454940;
@@ -121,14 +121,14 @@ button {
 .map-top-hud {
   position: absolute;
   z-index: 1;
-  top: 14px;
-  right: 14px;
-  left: 14px;
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr) max-content;
-  grid-template-areas: 'utility tools compass';
+  top: var(--hud-edge-inset);
+  right: var(--hud-edge-inset);
+  left: var(--hud-edge-inset);
+  display: flex;
+  flex-wrap: wrap;
   align-items: start;
-  gap: 8px;
+  column-gap: 20px;
+  row-gap: 8px;
   pointer-events: none;
 }
 
@@ -137,9 +137,8 @@ button {
   width: max-content;
   max-width: 100%;
   min-width: 0;
+  flex: 0 0 auto;
   gap: 8px;
-  grid-area: utility;
-  justify-self: start;
   pointer-events: none;
 }
 
@@ -155,20 +154,13 @@ button {
 
 .map-top-hud__tools {
   display: flex;
-  grid-area: tools;
   min-width: 0;
-  width: 100%;
-  justify-content: center;
-  pointer-events: none;
-}
-
-.map-top-hud[data-layout-mode='wide'] .map-top-hud__tools {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  grid-area: auto;
+  flex: 0 0 auto;
   width: max-content;
-  transform: translateX(-50%);
+  max-width: 100%;
+  margin-left: auto;
+  justify-content: flex-end;
+  pointer-events: none;
 }
 
 .responsive-overflow {
@@ -358,7 +350,7 @@ button {
 }
 
 .map-menu {
-  position: static;
+  position: relative;
   z-index: 3;
   flex: 0 0 auto;
   pointer-events: auto;
@@ -412,8 +404,8 @@ button {
 .map-menu__panel {
   position: absolute;
   top: calc(100% + 6px);
-  right: 0;
-  left: auto;
+  right: auto;
+  left: 0;
   width: min(300px, calc(100vw - 28px));
   padding: 7px;
   border-radius: 9px;
@@ -661,7 +653,6 @@ button {
   outline-offset: 1px;
 }
 
-.marker-palette,
 .marker-inspector {
   position: absolute;
   z-index: 2;
@@ -673,96 +664,6 @@ button {
   backdrop-filter: blur(6px);
 }
 
-.marker-palette {
-  top: 58px;
-  left: 50%;
-  width: min(560px, calc(100vw - 28px));
-  max-height: min(58vh, 470px);
-  padding: 8px;
-  overflow-y: auto;
-  transform: translateX(-50%);
-}
-
-.marker-palette header {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  padding: 2px 4px 7px;
-}
-
-.marker-palette header strong {
-  font-size: 13px;
-}
-
-.marker-palette header span,
-.marker-palette__group h2 {
-  color: #6d7069;
-  font-size: 10px;
-  font-weight: 500;
-}
-
-.marker-palette__groups {
-  display: grid;
-  gap: 8px;
-}
-
-.marker-palette__group h2 {
-  margin: 0 4px 3px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.marker-palette__items {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 3px;
-}
-
-.marker-palette__item {
-  display: flex;
-  gap: 7px;
-  align-items: center;
-  min-width: 0;
-  min-height: 36px;
-  padding: 5px 6px;
-  color: inherit;
-  font: inherit;
-  font-size: 11px;
-  text-align: left;
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-  border-radius: 5px;
-}
-
-.marker-palette__item:hover,
-.marker-palette__item--active {
-  background: rgb(102 123 82 / 15%);
-}
-
-.marker-palette__item--active {
-  color: #35422d;
-}
-
-.marker-palette__icon {
-  flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-}
-
-.marker-palette__icon svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.marker-palette__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.marker-palette__item:focus-visible,
 .marker-inspector button:focus-visible,
 .marker-inspector input:focus-visible {
   outline: 2px solid #657157;
@@ -802,13 +703,6 @@ button {
   font-family: ValheimNorse, Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
-.marker-inspector__row {
-  display: grid;
-  grid-template-columns: 1fr 25px 42px 25px;
-  gap: 4px;
-  align-items: center;
-}
-
 .marker-inspector button {
   padding: 4px 5px;
   color: inherit;
@@ -822,10 +716,6 @@ button {
 .marker-inspector button:disabled {
   color: #8b8e87;
   cursor: wait;
-}
-
-.marker-inspector__row output {
-  text-align: center;
 }
 
 .marker-inspector__direction input {
@@ -870,29 +760,121 @@ button {
   color: #59624f;
 }
 
-.map-debug {
-  bottom: 14px;
-  left: 14px;
-  padding: 7px 9px;
+.debug-info {
+  position: absolute;
+  bottom: var(--hud-edge-inset);
+  left: var(--hud-edge-inset);
+  z-index: 4;
+  pointer-events: auto;
+}
+
+.debug-info__button {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.debug-info__symbol {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  font-size: 23px;
+  line-height: 1;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
+.debug-info__popup {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  min-width: 248px;
+  padding: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   line-height: 1.55;
+  color: #454940;
+  background: rgb(244 242 235 / 92%);
+  border: 1px solid rgb(80 84 73 / 18%);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgb(42 45 39 / 8%);
+  backdrop-filter: blur(6px);
 }
 
-.map-debug__error {
-  max-width: 250px;
-  color: #87443a;
+.debug-info__actions {
+  display: flex;
+  gap: 4px;
 }
 
-/* The matchMedia thresholds live in hudLayout.ts; the same mode drives
-   both CSS placement and fixed overflow membership in one React update. */
-.map-top-hud:not([data-layout-mode='wide']) {
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    'utility compass'
-    'tools tools';
-  row-gap: 8px;
+.debug-info__settings-line,
+.debug-info__zoom-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
+
+.debug-info__zoom-line {
+  margin-bottom: 4px;
+}
+
+.debug-info__readout {
+  display: grid;
+  gap: 4px;
+}
+
+.debug-info__coordinate-line {
+  display: flex;
+  gap: 4px;
+}
+
+.debug-info__action {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.debug-info__settings h2 {
+  margin: 0;
+  font: inherit;
+}
+
+.debug-info__coordinate-options {
+  display: grid;
+  gap: 4px;
+}
+
+.debug-info__coordinate-option {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  gap: 8px;
+  padding: 4px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.debug-info__coordinate-option > span {
+  width: 16px;
+  text-align: center;
+}
+
+/* The matchMedia thresholds in hudLayout.ts govern fixed overflow membership.
+   Flex wrapping alone decides when the two visible HUD groups need two rows. */
 
 .map-top-hud[data-layout-mode='narrow'] .map-controls,
 .map-top-hud[data-layout-mode='narrow'] .responsive-overflow__visible {
@@ -905,14 +887,6 @@ button {
 
 .map-top-hud[data-layout-mode='narrow'] .map-controls .responsive-overflow__menu {
   margin-left: auto;
-}
-
-/* Coordinate forms opened from overflow stay inside the dropdown, including
-   on small windows, rather than extending outside its viewport-safe bounds. */
-.responsive-overflow__dropdown .coordinate-navigator__panel {
-  position: static;
-  width: 190px;
-  margin-top: 4px;
 }
 
 .map-loading {
@@ -990,7 +964,6 @@ button {
 .map-workspace[data-ui-mode='immersive'] .map-controls,
 .map-workspace[data-ui-mode='immersive'] .map-toolbar,
 .map-workspace[data-ui-mode='immersive'] .map-top-hud__right,
-.map-workspace[data-ui-mode='immersive'] .map-debug,
 .map-workspace[data-ui-mode='immersive'] .marker-palette,
 .map-workspace[data-ui-mode='immersive'] .marker-inspector,
 .map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel,
@@ -1025,8 +998,7 @@ button {
 .map-workspace[data-ui-mode='immersive'] .map-menu__toggle,
 .map-workspace[data-ui-mode='immersive'] .appearance-selector select,
 .map-workspace[data-ui-mode='immersive'] .coordinate-navigator > button,
-.map-workspace[data-ui-mode='immersive'] .marker-inspector button,
-.map-workspace[data-ui-mode='immersive'] .map-menu button {
+.map-workspace[data-ui-mode='immersive'] .marker-inspector button {
   color: #35261d;
   background: #e7cb91;
   border-color: #4a2e20;
@@ -1037,7 +1009,6 @@ button {
 .map-workspace[data-ui-mode='immersive'] .utility-control:hover:not(:disabled),
 .map-workspace[data-ui-mode='immersive'] .responsive-overflow__toggle:hover,
 .map-workspace[data-ui-mode='immersive'] .map-toolbar__tool:hover,
-.map-workspace[data-ui-mode='immersive'] .map-menu button:hover:not(:disabled),
 .map-workspace[data-ui-mode='immersive'] .coordinate-navigator > button:hover,
 .map-workspace[data-ui-mode='immersive'] .map-menu__toggle:hover,
 .map-workspace[data-ui-mode='immersive'] .map-menu__toggle[aria-expanded='true'] {
@@ -1046,8 +1017,7 @@ button {
 
 .map-workspace[data-ui-mode='immersive'] .map-toolbar__tool--active,
 .map-workspace[data-ui-mode='immersive'] .map-toolbar__tool:active,
-.map-workspace[data-ui-mode='immersive'] .utility-control:active,
-.map-workspace[data-ui-mode='immersive'] .map-menu button:active {
+.map-workspace[data-ui-mode='immersive'] .utility-control:active {
   background: #a95e2e;
   color: #fff0d0;
   box-shadow: 1px 1px 0 #2f2119;
@@ -1085,7 +1055,6 @@ button {
   color: #644630;
 }
 
-.map-workspace[data-ui-mode='immersive'] .map-menu__row--selected,
 .map-workspace[data-ui-mode='immersive'] .map-toolbar__tool--active,
 .map-workspace[data-ui-mode='immersive'] .marker-palette__item--active {
   background: #c58a35;
@@ -1120,12 +1089,2529 @@ button {
   box-shadow: 0 0 1px rgb(240 216 162 / 85%);
 }
 
-.map-workspace[data-ui-mode='immersive'] .map-debug {
-  color: #644630;
-  background: rgb(231 203 145 / 92%);
-}
-
 .map-workspace[data-ui-mode='immersive'] .map-loading {
   color: #35261d;
   background: rgb(216 191 135 / 90%);
+}
+
+/* A restrained pixel-RPG finish for Immersive surfaces. These rules are
+   presentation-only; Modern continues to use the original smooth controls. */
+.map-workspace[data-ui-mode='immersive'] .map-menu__panel,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector,
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__dropdown {
+  border-width: 3px;
+  border-radius: 0;
+  box-shadow: 4px 4px 0 #2f2119, inset 1px 1px 0 #f0d8a2, inset -1px -1px 0 rgb(105 67 35 / 32%);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__panel,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector {
+  clip-path: polygon(0 4px, 4px 4px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 4px, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 4px), 0 calc(100% - 4px));
+}
+
+.map-workspace[data-ui-mode='immersive'] .utility-control,
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tool,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator > button,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector button {
+  box-sizing: border-box;
+  transition: none;
+  box-shadow: 2px 2px 0 #6b4329, inset 1px 1px 0 rgb(240 216 162 / 78%), inset -1px -1px 0 rgb(105 67 35 / 26%);
+}
+
+.map-workspace[data-ui-mode='immersive'] .utility-control:active,
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tool:active,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator > button:active,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector button:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 #2f2119, inset 1px 1px 0 rgb(240 216 162 / 45%);
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel input,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form input,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector input {
+  box-sizing: border-box;
+  border-width: 2px;
+  border-radius: 0;
+  box-shadow: inset 1px 1px 0 rgb(240 216 162 / 82%), inset -1px -1px 0 rgb(105 67 35 / 24%);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right {
+  border-width: 3px;
+  box-shadow: 5px 5px 0 #2f2119, inset 1px 1px 0 #f0d8a2, inset -1px -1px 0 rgb(105 67 35 / 32%);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__panel,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector {
+  clip-path: polygon(0 6px, 6px 6px, 6px 0, calc(100% - 6px) 0, calc(100% - 6px) 6px, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 6px calc(100% - 6px), 0 calc(100% - 6px));
+}
+
+.map-workspace[data-ui-mode='immersive'] .utility-control,
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tool,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator > button,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector button {
+  border: 2px solid #4a2e20;
+  box-shadow: 3px 3px 0 #6b4329, inset 1px 1px 0 rgb(240 216 162 / 82%), inset -1px -1px 0 rgb(105 67 35 / 28%);
+}
+
+.map-workspace[data-ui-mode='immersive'] .utility-control:active,
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tool:active,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator > button:active,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector button:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #2f2119, inset 1px 1px 0 rgb(240 216 162 / 48%);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible {
+  gap: 1px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible {
+  gap: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field,
+.map-workspace[data-ui-mode='immersive'] .marker-palette__item {
+  border-color: #4a2e20;
+  border-style: solid;
+  border-width: 0 0 1px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field select,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__size input,
+.map-workspace[data-ui-mode='immersive'] .appearance-selector select {
+  box-sizing: border-box;
+  color: #35261d;
+  background: #f0d8a2;
+  border: 2px solid #4a2e20;
+  border-radius: 0;
+  box-shadow: inset 1px 1px 0 rgb(255 240 195 / 72%), inset -1px -1px 0 rgb(105 67 35 / 28%);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field,
+.map-workspace[data-ui-mode='immersive'] .marker-palette__item {
+  font-family: ValheimNorse, Georgia, serif;
+  letter-spacing: 0.02em;
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-palette__item {
+  box-sizing: border-box;
+  border-width: 2px;
+  border-radius: 0;
+  box-shadow: 2px 2px 0 #6b4329, inset 1px 1px 0 rgb(240 216 162 / 78%);
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-palette__item:hover,
+.map-workspace[data-ui-mode='immersive'] .marker-palette__item--active {
+  border-color: #2f2119;
+  box-shadow: 2px 2px 0 #2f2119, inset 1px 1px 0 rgb(240 216 162 / 62%);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__toggle,
+.map-workspace[data-ui-mode='immersive'] .appearance-selector select {
+  border: 2px solid #4a2e20;
+  box-shadow: 2px 2px 0 #6b4329, inset 1px 1px 0 rgb(240 216 162 / 78%);
+}
+
+.map-workspace[data-ui-mode='immersive'] .north-indicator {
+  padding-right: 6px;
+  border-left-width: 2px;
+}
+
+/* Immersive's geometry is built on a visible 4px UI pixel, rather than on
+   merely recoloured modern controls. Every selector below is deliberately
+   scoped to normal application surfaces; debug presentation is separately
+   themed below. */
+.map-workspace[data-ui-mode='immersive'] {
+  --immersive-px: 4px;
+  --immersive-panel-step: calc(var(--immersive-px) * 2);
+  --immersive-ink: #4a2e20;
+  --immersive-deep-ink: #2f2119;
+  --immersive-highlight: #f0d8a2;
+  --immersive-shadow: #6b4329;
+  --immersive-hud-visible-edge-inset: calc(var(--hud-edge-inset) + (var(--immersive-px) * 2));
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right,
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__dropdown,
+.map-workspace[data-ui-mode='immersive'] .map-menu__panel,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel,
+.map-workspace[data-ui-mode='immersive'] .marker-palette,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector {
+  box-sizing: border-box;
+  border: var(--immersive-px) solid var(--immersive-ink);
+  border-radius: 0;
+  clip-path: polygon(
+    0 var(--immersive-panel-step),
+    var(--immersive-px) var(--immersive-panel-step),
+    var(--immersive-px) var(--immersive-px),
+    var(--immersive-panel-step) var(--immersive-px),
+    var(--immersive-panel-step) 0,
+    calc(100% - var(--immersive-panel-step)) 0,
+    calc(100% - var(--immersive-panel-step)) var(--immersive-px),
+    calc(100% - var(--immersive-px)) var(--immersive-px),
+    calc(100% - var(--immersive-px)) var(--immersive-panel-step),
+    100% var(--immersive-panel-step),
+    100% calc(100% - var(--immersive-panel-step)),
+    calc(100% - var(--immersive-px)) calc(100% - var(--immersive-panel-step)),
+    calc(100% - var(--immersive-px)) calc(100% - var(--immersive-px)),
+    calc(100% - var(--immersive-panel-step)) calc(100% - var(--immersive-px)),
+    calc(100% - var(--immersive-panel-step)) 100%,
+    var(--immersive-panel-step) 100%,
+    var(--immersive-panel-step) calc(100% - var(--immersive-px)),
+    var(--immersive-px) calc(100% - var(--immersive-px)),
+    var(--immersive-px) calc(100% - var(--immersive-panel-step)),
+    0 calc(100% - var(--immersive-panel-step))
+  );
+  filter: drop-shadow(calc(var(--immersive-px) * 2) calc(var(--immersive-px) * 2) 0 var(--immersive-deep-ink));
+  box-shadow: inset 0 var(--immersive-px) 0 var(--immersive-highlight),
+    inset var(--immersive-px) 0 0 var(--immersive-highlight),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-shadow),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-shadow);
+}
+
+.map-workspace[data-ui-mode='immersive'] .utility-control,
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tool,
+.map-workspace[data-ui-mode='immersive'] .map-menu__toggle,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator > button,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector button,
+.map-workspace[data-ui-mode='immersive'] .marker-palette__item,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete,
+.map-workspace[data-ui-mode='immersive'] .appearance-selector select {
+  box-sizing: border-box;
+  border: 2px solid var(--immersive-ink);
+  border-radius: 0;
+  clip-path: polygon(
+    0 var(--immersive-px),
+    var(--immersive-px) var(--immersive-px),
+    var(--immersive-px) 0,
+    calc(100% - var(--immersive-px)) 0,
+    calc(100% - var(--immersive-px)) var(--immersive-px),
+    100% var(--immersive-px),
+    100% calc(100% - var(--immersive-px)),
+    calc(100% - var(--immersive-px)) calc(100% - var(--immersive-px)),
+    calc(100% - var(--immersive-px)) 100%,
+    var(--immersive-px) 100%,
+    var(--immersive-px) calc(100% - var(--immersive-px)),
+    0 calc(100% - var(--immersive-px))
+  );
+  transition: none;
+  box-shadow: inset 0 var(--immersive-px) 0 var(--immersive-highlight),
+    inset var(--immersive-px) 0 0 var(--immersive-highlight),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-shadow),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-shadow),
+    var(--immersive-px) var(--immersive-px) 0 var(--immersive-shadow);
+}
+
+.map-workspace[data-ui-mode='immersive'] .utility-control:active,
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tool:active,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator > button:active,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector button:active,
+.map-workspace[data-ui-mode='immersive'] .marker-palette__item:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete:active,
+.map-workspace[data-ui-mode='immersive'] .appearance-selector select:active {
+  transform: translate(var(--immersive-px), var(--immersive-px));
+  box-shadow: inset 0 var(--immersive-px) 0 rgb(240 216 162 / 45%),
+    inset var(--immersive-px) 0 0 rgb(240 216 162 / 45%);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible {
+  gap: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tool--active,
+.map-workspace[data-ui-mode='immersive'] .utility-control[aria-pressed='true'],
+.map-workspace[data-ui-mode='immersive'] .marker-palette__item--active {
+  color: #fff0d0;
+  background: #a95e2e;
+  box-shadow: inset 0 var(--immersive-px) 0 rgb(240 216 162 / 48%),
+    inset var(--immersive-px) 0 0 rgb(240 216 162 / 48%),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-deep-ink),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-deep-ink);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field {
+  border-radius: 0;
+  border-bottom: var(--immersive-px) solid rgb(74 46 32 / 52%);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field:hover {
+  background: #c58a35;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel input,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form input,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector input,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field select,
+.map-workspace[data-ui-mode='immersive'] .appearance-selector select {
+  box-sizing: border-box;
+  border: var(--immersive-px) solid var(--immersive-ink);
+  border-radius: 0;
+  box-shadow: inset 0 var(--immersive-px) 0 var(--immersive-highlight),
+    inset var(--immersive-px) 0 0 var(--immersive-highlight),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-shadow),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-shadow);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__size input[type='range'],
+.map-workspace[data-ui-mode='immersive'] .marker-inspector input[type='range'] {
+  height: calc(var(--immersive-px) * 2);
+  accent-color: #a95e2e;
+  border-radius: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__size input[type='range']::-webkit-slider-runnable-track,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector input[type='range']::-webkit-slider-runnable-track {
+  height: calc(var(--immersive-px) * 2);
+  background: #8e6a42;
+  border: 0;
+  border-radius: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__size input[type='range']::-webkit-slider-thumb,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector input[type='range']::-webkit-slider-thumb {
+  width: calc(var(--immersive-px) * 3);
+  height: calc(var(--immersive-px) * 4);
+  margin-top: calc(var(--immersive-px) * -1);
+  appearance: none;
+  background: #c58a35;
+  border: 2px solid var(--immersive-ink);
+  border-radius: 0;
+  box-shadow: 2px 2px 0 var(--immersive-deep-ink);
+}
+
+/* HUD toolbars are single pixel frames with adjoining slots. The stepped
+   silhouette belongs to the frame; slot faces stay rectangular so their
+   highlights and dividers never interrupt the outer edge. */
+.map-workspace[data-ui-mode='immersive'] {
+  --immersive-control-height: 44px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right {
+  gap: 0;
+  padding: var(--immersive-px);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible {
+  gap: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--immersive-control-height);
+  padding: 0 8px;
+  line-height: 1;
+  border: 0;
+  border-radius: 0;
+  clip-path: none;
+  box-shadow: inset 0 var(--immersive-px) 0 var(--immersive-highlight),
+    inset var(--immersive-px) 0 0 var(--immersive-highlight),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-shadow),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-shadow);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible > .responsive-overflow__item {
+  align-items: stretch;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item:not(:last-child),
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible > .responsive-overflow__item:not(:last-child) {
+  border-right: var(--immersive-px) solid var(--immersive-ink);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item > button,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible > .responsive-overflow__item > button {
+  border-right: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__menu,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__menu {
+  display: flex;
+  align-items: stretch;
+  border-left: var(--immersive-px) solid var(--immersive-ink);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle {
+  min-width: calc(var(--immersive-px) * 7);
+  padding-inline: var(--immersive-px);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control:active,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle:active {
+  transform: none;
+  box-shadow: inset 0 var(--immersive-px) 0 rgb(240 216 162 / 35%),
+    inset var(--immersive-px) 0 0 rgb(240 216 162 / 35%),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-deep-ink),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-deep-ink);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control[aria-pressed='true'],
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool--active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle--active {
+  box-shadow: inset 0 var(--immersive-px) 0 rgb(240 216 162 / 35%),
+    inset var(--immersive-px) 0 0 rgb(240 216 162 / 35%),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-deep-ink),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-deep-ink);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete {
+  min-height: var(--immersive-control-height);
+  box-sizing: border-box;
+  align-content: center;
+  padding-block: 0;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: var(--immersive-px) solid var(--immersive-ink);
+  border-radius: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field {
+  padding-inline: calc(var(--immersive-px) * 2);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: calc(var(--immersive-px) * 2);
+  clip-path: none;
+  box-shadow: inset 0 var(--immersive-px) 0 var(--immersive-highlight),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-shadow);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete:active {
+  transform: none;
+  box-shadow: inset 0 var(--immersive-px) 0 rgb(240 216 162 / 35%),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-deep-ink);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right {
+  align-items: stretch;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator {
+  min-height: var(--immersive-control-height);
+  height: var(--immersive-control-height);
+  box-sizing: border-box;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle {
+  display: flex;
+  align-items: center;
+  padding-inline: calc(var(--immersive-px) * 2);
+  border: 0;
+  clip-path: none;
+  box-shadow: inset 0 var(--immersive-px) 0 var(--immersive-highlight),
+    inset var(--immersive-px) 0 0 var(--immersive-highlight),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-shadow),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-shadow);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector {
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+  border-left: var(--immersive-px) solid var(--immersive-ink);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector select {
+  display: flex;
+  align-items: center;
+  min-height: var(--immersive-control-height);
+  height: 100%;
+  width: max-content;
+  max-width: none;
+  padding-inline: calc(var(--immersive-px) * 2);
+  border: 0;
+  clip-path: none;
+  box-shadow: inset 0 var(--immersive-px) 0 var(--immersive-highlight),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-shadow);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator {
+  display: grid;
+  align-content: center;
+  min-width: calc(var(--immersive-px) * 7);
+  padding: 0 var(--immersive-px);
+  border-left: var(--immersive-px) solid var(--immersive-ink);
+}
+
+/* Final toolbar chrome pass: one frame, adjoining faces, light internal
+   separators. Older per-control chrome is intentionally neutralized here. */
+.map-workspace[data-ui-mode='immersive'] .map-controls,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right {
+  padding: var(--immersive-px);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle {
+  padding-inline: 8px;
+  border: 0;
+  box-shadow: inset 0 2px 0 rgb(240 216 162 / 72%),
+    inset 2px 0 0 rgb(240 216 162 / 72%),
+    inset 0 -2px 0 rgb(107 67 41 / 72%),
+    inset -2px 0 0 rgb(107 67 41 / 72%);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item:not(:last-child),
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible > .responsive-overflow__item:not(:last-child) {
+  border-color: var(--immersive-ink);
+  border-right-width: 2px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__menu,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__menu {
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 2px solid var(--immersive-ink);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control:active,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control[aria-pressed='true'],
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool--active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle--active {
+  box-shadow: inset 0 2px 0 rgb(240 216 162 / 34%),
+    inset 2px 0 0 rgb(240 216 162 / 34%),
+    inset 0 -2px 0 var(--immersive-deep-ink),
+    inset -2px 0 0 var(--immersive-deep-ink);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete {
+  border-bottom: 0;
+  border-left-width: 2px;
+  box-shadow: none;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator {
+  border-left-width: 2px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector select {
+  box-shadow: inset 0 2px 0 rgb(240 216 162 / 72%),
+    inset 2px 0 0 rgb(240 216 162 / 72%),
+    inset 0 -2px 0 rgb(107 67 41 / 72%),
+    inset -2px 0 0 rgb(107 67 41 / 72%);
+}
+
+/* Compact HUD groups are transparent layout containers. Their individual
+   wooden controls carry the visual weight; standalone popovers retain the
+   timber-frame rules above. */
+.map-workspace[data-ui-mode='immersive'] .map-controls,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right {
+  gap: 4px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  clip-path: none;
+  filter: none;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls::before,
+.map-workspace[data-ui-mode='immersive'] .map-controls::after,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar::before,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar::after,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right::before,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right::after {
+  display: none;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible {
+  gap: 4px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible > .responsive-overflow__item {
+  border: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__menu,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__menu {
+  border: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector select {
+  box-shadow: inset 0 4px 0 var(--immersive-wood-highlight),
+    inset 4px 0 0 var(--immersive-wood-highlight),
+    inset 0 -4px 0 var(--immersive-wood-shadow),
+    inset -4px 0 0 var(--immersive-wood-shadow),
+    2px 2px 0 var(--immersive-deep-ink);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control:active,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete:active,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector select:active {
+  box-shadow: inset 0 4px 0 var(--immersive-wood-shadow),
+    inset 4px 0 0 var(--immersive-wood-shadow),
+    inset 0 -4px 0 var(--immersive-wood-highlight),
+    inset -4px 0 0 var(--immersive-wood-highlight);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator {
+  border: 0;
+  box-shadow: inset 0 4px 0 var(--immersive-wood-highlight),
+    inset 4px 0 0 var(--immersive-wood-highlight),
+    inset 0 -4px 0 var(--immersive-wood-shadow),
+    inset -4px 0 0 var(--immersive-wood-shadow),
+    2px 2px 0 var(--immersive-deep-ink);
+}
+
+/* Connected HUD tiles: one height, no external gaps, and a single shared
+   shadow behind each compact row. */
+.map-workspace[data-ui-mode='immersive'] {
+  --immersive-toolbar-control-height: 44px;
+  --immersive-control-height: var(--immersive-toolbar-control-height);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right {
+  gap: 0;
+  align-items: stretch;
+  filter: drop-shadow(0 var(--immersive-px) 0 var(--immersive-deep-ink));
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right {
+  gap: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible {
+  gap: 0;
+  align-items: stretch;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__item,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__item,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__menu,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__menu {
+  align-items: stretch;
+  margin: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item:not(:first-child),
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible > .responsive-overflow__item:not(:first-child) {
+  border-left: 2px solid var(--immersive-wood-outer);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector select,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field {
+  box-sizing: border-box;
+  height: var(--immersive-toolbar-control-height);
+  min-height: var(--immersive-toolbar-control-height);
+  margin: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector select {
+  box-shadow: inset 0 4px 0 var(--immersive-wood-highlight),
+    inset 4px 0 0 var(--immersive-wood-highlight),
+    inset 0 -4px 0 var(--immersive-wood-shadow),
+    inset -4px 0 0 var(--immersive-wood-shadow);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field {
+  align-items: stretch;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__menu,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__menu {
+  border-left: 2px solid var(--immersive-wood-outer);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control[aria-pressed='true'],
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool--active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle--active {
+  color: var(--immersive-wood-selected-text);
+  background-color: var(--immersive-wood-selected);
+  box-shadow: inset 0 2px 0 rgb(231 183 111 / 36%),
+    inset 2px 0 0 rgb(231 183 111 / 36%),
+    inset 0 -2px 0 var(--immersive-deep-ink),
+    inset -2px 0 0 var(--immersive-deep-ink);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control:active,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle:active {
+  box-shadow: inset 0 2px 0 var(--immersive-wood-shadow),
+    inset 2px 0 0 var(--immersive-wood-shadow),
+    inset 0 -2px 0 var(--immersive-wood-highlight),
+    inset -2px 0 0 var(--immersive-wood-highlight);
+}
+
+/* Solid silhouette frames. These replace stroked border + clip-path shells
+   for Immersive toolbars and popovers. */
+.map-workspace[data-ui-mode='immersive'] .map-controls,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right,
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__dropdown,
+.map-workspace[data-ui-mode='immersive'] .map-menu__panel,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel,
+.map-workspace[data-ui-mode='immersive'] .marker-palette,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector {
+  position: relative;
+  padding: 8px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  clip-path: none;
+  filter: none;
+  isolation: isolate;
+}
+
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__dropdown,
+.map-workspace[data-ui-mode='immersive'] .map-menu__panel,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel,
+.map-workspace[data-ui-mode='immersive'] .marker-palette,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector {
+  position: absolute;
+}
+
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__dropdown {
+  padding: 9px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__panel {
+  padding: 11px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel {
+  padding: 14px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-palette {
+  padding: 12px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-inspector {
+  padding: 13px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls::before,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar::before,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right::before,
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__dropdown::before,
+.map-workspace[data-ui-mode='immersive'] .map-menu__panel::before,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel::before,
+.map-workspace[data-ui-mode='immersive'] .marker-palette::before,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector::before {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  background: var(--immersive-deep-ink);
+  clip-path: polygon(
+    0 var(--immersive-panel-step),
+    var(--immersive-px) var(--immersive-panel-step),
+    var(--immersive-px) var(--immersive-px),
+    var(--immersive-panel-step) var(--immersive-px),
+    var(--immersive-panel-step) 0,
+    calc(100% - var(--immersive-panel-step)) 0,
+    calc(100% - var(--immersive-panel-step)) var(--immersive-px),
+    calc(100% - var(--immersive-px)) var(--immersive-px),
+    calc(100% - var(--immersive-px)) var(--immersive-panel-step),
+    100% var(--immersive-panel-step),
+    100% calc(100% - var(--immersive-panel-step)),
+    calc(100% - var(--immersive-px)) calc(100% - var(--immersive-panel-step)),
+    calc(100% - var(--immersive-px)) calc(100% - var(--immersive-px)),
+    calc(100% - var(--immersive-panel-step)) calc(100% - var(--immersive-px)),
+    calc(100% - var(--immersive-panel-step)) 100%,
+    var(--immersive-panel-step) 100%,
+    var(--immersive-panel-step) calc(100% - var(--immersive-px)),
+    var(--immersive-px) calc(100% - var(--immersive-px)),
+    var(--immersive-px) calc(100% - var(--immersive-panel-step)),
+    0 calc(100% - var(--immersive-panel-step))
+  );
+  filter: drop-shadow(calc(var(--immersive-px) * 1) calc(var(--immersive-px) * 1) 0 var(--immersive-deep-ink));
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls::after,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar::after,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right::after,
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__dropdown::after,
+.map-workspace[data-ui-mode='immersive'] .map-menu__panel::after,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel::after,
+.map-workspace[data-ui-mode='immersive'] .marker-palette::after,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector::after {
+  position: absolute;
+  z-index: -1;
+  inset: var(--immersive-px);
+  pointer-events: none;
+  content: '';
+  background: #d6b778;
+  clip-path: polygon(
+    0 var(--immersive-panel-step),
+    var(--immersive-px) var(--immersive-panel-step),
+    var(--immersive-px) var(--immersive-px),
+    var(--immersive-panel-step) var(--immersive-px),
+    var(--immersive-panel-step) 0,
+    calc(100% - var(--immersive-panel-step)) 0,
+    calc(100% - var(--immersive-panel-step)) var(--immersive-px),
+    calc(100% - var(--immersive-px)) var(--immersive-px),
+    calc(100% - var(--immersive-px)) var(--immersive-panel-step),
+    100% var(--immersive-panel-step),
+    100% calc(100% - var(--immersive-panel-step)),
+    calc(100% - var(--immersive-px)) calc(100% - var(--immersive-panel-step)),
+    calc(100% - var(--immersive-px)) calc(100% - var(--immersive-px)),
+    calc(100% - var(--immersive-panel-step)) calc(100% - var(--immersive-px)),
+    calc(100% - var(--immersive-panel-step)) 100%,
+    var(--immersive-panel-step) 100%,
+    var(--immersive-panel-step) calc(100% - var(--immersive-px)),
+    var(--immersive-px) calc(100% - var(--immersive-px)),
+    var(--immersive-px) calc(100% - var(--immersive-panel-step)),
+    0 calc(100% - var(--immersive-panel-step))
+  );
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls > *,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar > *,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right > *,
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__dropdown > *,
+.map-workspace[data-ui-mode='immersive'] .map-menu__panel > *,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel > *,
+.map-workspace[data-ui-mode='immersive'] .marker-palette > *,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Carved timber material for Immersive chrome. */
+.map-workspace[data-ui-mode='immersive'] {
+  --immersive-ink: #51301d;
+  --immersive-deep-ink: #2b1a12;
+  --immersive-highlight: #e7b76f;
+  --immersive-shadow: #6b3f22;
+  --immersive-wood-outer: #3b2418;
+  --immersive-wood-frame: #8a5128;
+  --immersive-wood-face: #b96f35;
+  --immersive-wood-light: #d79a57;
+  --immersive-wood-highlight: #e7b76f;
+  --immersive-wood-shadow: #6b3f22;
+  --immersive-wood-selected: #9e4f27;
+  --immersive-wood-text: #2d1c14;
+  --immersive-wood-selected-text: #f3dda8;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls::before,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar::before,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right::before,
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__dropdown::before,
+.map-workspace[data-ui-mode='immersive'] .map-menu__panel::before,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel::before,
+.map-workspace[data-ui-mode='immersive'] .marker-palette::before,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector::before {
+  background: var(--immersive-wood-outer);
+  filter: drop-shadow(var(--immersive-px) var(--immersive-px) 0 var(--immersive-deep-ink));
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls::after,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar::after,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right::after {
+  background: var(--immersive-wood-frame);
+}
+
+.map-workspace[data-ui-mode='immersive'] .responsive-overflow__dropdown::after,
+.map-workspace[data-ui-mode='immersive'] .map-menu__panel::after,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel::after,
+.map-workspace[data-ui-mode='immersive'] .marker-palette::after,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector::after {
+  background: #d9b978;
+  box-shadow: inset var(--immersive-px) 0 0 var(--immersive-wood-frame),
+    inset 0 var(--immersive-px) 0 var(--immersive-wood-frame);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector select,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector button,
+.map-workspace[data-ui-mode='immersive'] .marker-palette__item,
+.map-workspace[data-ui-mode='immersive'] .immersive-wood-button {
+  color: var(--immersive-wood-text);
+  background-color: var(--immersive-wood-face);
+  background-image:
+    linear-gradient(90deg, transparent 0 12px, rgb(74 37 20 / 18%) 12px 16px, transparent 16px 44px),
+    linear-gradient(90deg, transparent 0 28px, rgb(231 183 111 / 16%) 28px 36px, transparent 36px 68px);
+  background-position: 0 5px, 13px 13px;
+  background-size: 68px 16px, 44px 20px;
+  background-repeat: repeat;
+  box-shadow: inset 0 4px 0 var(--immersive-wood-highlight),
+    inset 4px 0 0 var(--immersive-wood-highlight),
+    inset 0 -4px 0 var(--immersive-wood-shadow),
+    inset -4px 0 0 var(--immersive-wood-shadow);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator {
+  color: var(--immersive-wood-selected-text);
+  background-color: var(--immersive-wood-frame);
+  background-image: linear-gradient(90deg, transparent 0 16px, rgb(43 26 18 / 16%) 16px 20px, transparent 20px 52px);
+  background-position: 7px 8px;
+  background-size: 52px 18px;
+  background-repeat: repeat;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field select,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__size input,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel input,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form input,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector input {
+  color: var(--immersive-wood-text);
+  background-color: #d9b978;
+  background-image: none;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control:hover:not(:disabled),
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle:hover,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool:hover,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete:hover,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle:hover,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle[aria-expanded='true'],
+.map-workspace[data-ui-mode='immersive'] .marker-inspector button:hover:not(:disabled),
+.map-workspace[data-ui-mode='immersive'] .marker-palette__item:hover,
+.map-workspace[data-ui-mode='immersive'] .immersive-wood-button:hover:not(:disabled) {
+  background-color: var(--immersive-wood-light);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control[aria-pressed='true'],
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool--active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle--active,
+.map-workspace[data-ui-mode='immersive'] .marker-palette__item--active {
+  color: var(--immersive-wood-selected-text);
+  background-color: var(--immersive-wood-selected);
+  background-image: linear-gradient(90deg, transparent 0 12px, rgb(43 26 18 / 20%) 12px 16px, transparent 16px 44px);
+  box-shadow: inset 0 2px 0 rgb(231 183 111 / 36%),
+    inset 2px 0 0 rgb(231 183 111 / 36%),
+    inset 0 -2px 0 var(--immersive-deep-ink),
+    inset -2px 0 0 var(--immersive-deep-ink);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control:active,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete:active,
+.map-workspace[data-ui-mode='immersive'] .marker-inspector button:active,
+.map-workspace[data-ui-mode='immersive'] .marker-palette__item:active,
+.map-workspace[data-ui-mode='immersive'] .immersive-wood-button:active {
+  transform: none;
+  background-color: var(--immersive-wood-selected);
+  box-shadow: inset 0 2px 0 rgb(43 26 18 / 72%),
+    inset 2px 0 0 rgb(43 26 18 / 72%),
+    inset 0 -2px 0 var(--immersive-wood-highlight),
+    inset -2px 0 0 var(--immersive-wood-highlight);
+}
+
+/* Final state-geometry normalization for connected HUD controls. State is
+   painted inside a fixed slot; it never moves or changes the slot's box. */
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector select,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field {
+  align-self: stretch;
+  box-sizing: border-box;
+  height: var(--immersive-toolbar-control-height);
+  min-height: var(--immersive-toolbar-control-height);
+  max-height: var(--immersive-toolbar-control-height);
+  margin: 0;
+  transform: none;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control:active,
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control[aria-pressed='true'],
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle[aria-pressed='true'],
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool--active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle[aria-pressed='true'],
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete:active,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector select:active,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator {
+  transform: none;
+}
+
+/* North is a status tile, not a button: fixed-size, noninteractive and
+   recessed with the same internal timber treatment as the neighbouring slot. */
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator {
+  cursor: default;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: inset 0 4px 0 var(--immersive-wood-shadow),
+    inset 4px 0 0 var(--immersive-wood-shadow),
+    inset 0 -4px 0 var(--immersive-wood-highlight),
+    inset -4px 0 0 var(--immersive-wood-highlight);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator * {
+  line-height: 1;
+}
+
+/* Toolbar seams are internal only; there are no duplicate end edges. */
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible > .responsive-overflow__item {
+  border-right: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible {
+  gap: 0;
+  align-items: stretch;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector {
+  align-self: stretch;
+  box-sizing: border-box;
+  height: var(--immersive-toolbar-control-height);
+  min-height: var(--immersive-toolbar-control-height);
+  max-height: var(--immersive-toolbar-control-height);
+  margin: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] {
+  --immersive-toolbar-rim: #684025;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector select {
+  padding-inline: 12px;
+}
+
+/* One authoritative rim overlay per connected toolbar slot. The top,
+   bottom, and right strips share one element, so the top-right corner is a
+   solid 4x4 overlap rather than a junction between separate edge systems. */
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector select,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field {
+  --immersive-slot-rim: var(--immersive-px);
+  --immersive-slot-rim-color: var(--immersive-toolbar-rim);
+  --immersive-slot-bevel-depth: calc(var(--immersive-px) * 2);
+  --immersive-slot-highlight-x: 0px;
+  --immersive-slot-highlight-y: var(--immersive-px);
+  position: relative;
+  border: 0;
+  box-shadow: inset 0 calc(var(--immersive-slot-bevel-depth) * -1) 0 var(--immersive-wood-shadow),
+    inset calc(var(--immersive-slot-bevel-depth) * -1) 0 0 var(--immersive-wood-shadow);
+}
+
+/* One authoritative inner raised edge. Both strips share the same origin:
+   the first slot begins after its left rim, while subsequent slots begin
+   directly after the preceding slot's shared right-rim seam. */
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control::before,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle::before,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool::before,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle::before,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete::before,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle::before,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector select::before,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator::before,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field::before,
+.map-workspace[data-ui-mode='immersive'] .immersive-wood-button::before {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  background-image:
+    linear-gradient(var(--immersive-wood-highlight), var(--immersive-wood-highlight)),
+    linear-gradient(var(--immersive-wood-highlight), var(--immersive-wood-highlight));
+  background-position:
+    var(--immersive-slot-highlight-x) var(--immersive-slot-highlight-y),
+    var(--immersive-slot-highlight-x) var(--immersive-slot-highlight-y);
+  background-size:
+    calc(100% - var(--immersive-slot-highlight-x) - var(--immersive-slot-rim)) var(--immersive-px),
+    var(--immersive-px) calc(100% - var(--immersive-slot-highlight-y) - var(--immersive-slot-rim));
+  background-repeat: no-repeat;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item:first-child > button,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item:first-child > .map-menu > .map-menu__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item:first-child > .coordinate-navigator > .utility-control,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible > .responsive-overflow__item:first-child > button,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle {
+  --immersive-slot-highlight-x: var(--immersive-px);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator::before {
+  background-image:
+    linear-gradient(var(--immersive-wood-shadow), var(--immersive-wood-shadow)),
+    linear-gradient(var(--immersive-wood-shadow), var(--immersive-wood-shadow));
+}
+
+/* Selected and pressed controls reuse the normal bevel geometry with the
+   visible medium-timber toolbar rim instead of light wood, forming one
+   aligned recessed top/left L. */
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control[aria-pressed='true']::before,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle[aria-pressed='true']::before,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool--active::before,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle--active::before,
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control:active::before,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle:active::before,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool:active::before,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle:active::before,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete:active::before,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle:active::before,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector select:active::before,
+.map-workspace[data-ui-mode='immersive'] .immersive-wood-button[aria-current='true']::before,
+.map-workspace[data-ui-mode='immersive'] .immersive-wood-button:active::before {
+  background-image:
+    linear-gradient(var(--immersive-toolbar-rim), var(--immersive-toolbar-rim)),
+    linear-gradient(var(--immersive-toolbar-rim), var(--immersive-toolbar-rim));
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control[aria-pressed='true'],
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle[aria-pressed='true'],
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool--active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle--active,
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control:active,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete:active,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle:active,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector select:active,
+.map-workspace[data-ui-mode='immersive'] .immersive-wood-button[aria-current='true'],
+.map-workspace[data-ui-mode='immersive'] .immersive-wood-button:active {
+  background-image: none;
+  box-shadow: inset 0 calc(var(--immersive-slot-bevel-depth) * -1) 0 var(--immersive-wood-highlight),
+    inset calc(var(--immersive-slot-bevel-depth) * -1) 0 0 var(--immersive-wood-highlight);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control::after,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle::after,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool::after,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle::after,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__delete::after,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle::after,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .appearance-selector select::after,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator::after,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__field::after {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  background:
+    linear-gradient(var(--immersive-slot-rim-color), var(--immersive-slot-rim-color)) top / 100% var(--immersive-slot-rim) no-repeat,
+    linear-gradient(var(--immersive-slot-rim-color), var(--immersive-slot-rim-color)) bottom / 100% var(--immersive-slot-rim) no-repeat,
+    linear-gradient(var(--immersive-slot-rim-color), var(--immersive-slot-rim-color)) right / var(--immersive-slot-rim) 100% no-repeat;
+}
+
+.map-workspace[data-ui-mode='immersive'] .immersive-wood-button::after {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  background:
+    linear-gradient(var(--immersive-slot-rim-color), var(--immersive-slot-rim-color)) top / 100% var(--immersive-slot-rim) no-repeat,
+    linear-gradient(var(--immersive-slot-rim-color), var(--immersive-slot-rim-color)) bottom / 100% var(--immersive-slot-rim) no-repeat,
+    linear-gradient(var(--immersive-slot-rim-color), var(--immersive-slot-rim-color)) left / var(--immersive-slot-rim) 100% no-repeat,
+    linear-gradient(var(--immersive-slot-rim-color), var(--immersive-slot-rim-color)) right / var(--immersive-slot-rim) 100% no-repeat;
+}
+
+.map-workspace[data-ui-mode='immersive'] .immersive-wood-button {
+  --immersive-slot-rim: var(--immersive-px);
+  --immersive-slot-rim-color: var(--immersive-toolbar-rim);
+  --immersive-slot-bevel-depth: calc(var(--immersive-px) * 2);
+  --immersive-slot-highlight-x: var(--immersive-px);
+  --immersive-slot-highlight-y: var(--immersive-px);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+  border: 0;
+  outline: 0;
+  appearance: none;
+  clip-path: none;
+  box-shadow: inset 0 calc(var(--immersive-slot-bevel-depth) * -1) 0 var(--immersive-wood-shadow),
+    inset calc(var(--immersive-slot-bevel-depth) * -1) 0 0 var(--immersive-wood-shadow);
+}
+
+.map-workspace[data-ui-mode='immersive'] .immersive-wood-button:focus-visible {
+  outline: var(--immersive-px) solid var(--immersive-wood-highlight);
+  outline-offset: 0;
+}
+
+/* Only the first slot owns a left rim. Every other slot uses its predecessor's
+   right rim as the single shared seam. */
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item:first-child > button::after,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item:first-child > .map-menu > .map-menu__toggle::after,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible > .responsive-overflow__item:first-child > button::after,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle::after {
+  background:
+    linear-gradient(var(--immersive-slot-rim-color), var(--immersive-slot-rim-color)) top / 100% var(--immersive-slot-rim) no-repeat,
+    linear-gradient(var(--immersive-slot-rim-color), var(--immersive-slot-rim-color)) bottom / 100% var(--immersive-slot-rim) no-repeat,
+    linear-gradient(var(--immersive-slot-rim-color), var(--immersive-slot-rim-color)) left / var(--immersive-slot-rim) 100% no-repeat,
+    linear-gradient(var(--immersive-slot-rim-color), var(--immersive-slot-rim-color)) right / var(--immersive-slot-rim) 100% no-repeat;
+}
+
+/* Wrapper borders are not part of the seam system. */
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible > .responsive-overflow__item,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__menu,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__menu,
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__right .north-indicator {
+  border: 0;
+}
+
+/* Immersive application typography and the shared Map Library/coordinate
+   controls. The debug overlay keeps its existing monospace face explicitly. */
+.map-workspace[data-ui-mode='immersive'] {
+  font-family: ValheimNorse, Georgia, serif;
+}
+
+.map-workspace[data-ui-mode='immersive'] input,
+.map-workspace[data-ui-mode='immersive'] select,
+.map-workspace[data-ui-mode='immersive'] textarea,
+.map-workspace[data-ui-mode='immersive'] button {
+  font-family: inherit;
+}
+
+/* Map rows are standalone carved tiles: the same face, grain, 4px rim and
+   bevel vocabulary as the approved HUD controls, without a nested card. */
+.map-workspace[data-ui-mode='immersive'] .map-menu__list {
+  box-sizing: border-box;
+  gap: var(--immersive-px);
+  padding: calc(var(--immersive-px) * 3);
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--immersive-wood-frame) #d6b778;
+  scrollbar-width: auto;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__list::-webkit-scrollbar {
+  width: calc(var(--immersive-px) * 4);
+  height: calc(var(--immersive-px) * 4);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__list::-webkit-scrollbar-track {
+  background: #d6b778;
+  border: 0;
+  border-radius: 0;
+  box-shadow: inset var(--immersive-px) 0 0 var(--immersive-wood-outer),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-wood-outer);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__list::-webkit-scrollbar-thumb {
+  min-height: calc(var(--immersive-px) * 4);
+  background: var(--immersive-wood-frame);
+  border: var(--immersive-px) solid var(--immersive-toolbar-rim);
+  border-radius: 0;
+  box-shadow: inset var(--immersive-px) 0 0 var(--immersive-wood-light),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-wood-outer);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__list::-webkit-scrollbar-button {
+  display: none;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__row {
+  grid-template-columns: minmax(0, 1fr) 48px;
+  column-gap: var(--immersive-px);
+  min-height: 48px;
+  align-items: stretch;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__map-button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  height: 48px;
+  min-height: 48px;
+  max-height: 48px;
+  padding-inline: 12px;
+  text-align: left;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__actions-toggle {
+  width: 48px;
+  height: 48px;
+  min-height: 48px;
+  max-height: 48px;
+  margin: 0;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__header > button,
+.map-workspace[data-ui-mode='immersive'] .map-menu__actions button,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form footer button,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel footer button {
+  height: 44px;
+  min-height: 44px;
+  max-height: 44px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__header > button {
+  padding-inline: 12px;
+  white-space: nowrap;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__map-button > span,
+.map-workspace[data-ui-mode='immersive'] .immersive-wood-button > span {
+  position: relative;
+  z-index: 3;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--immersive-px);
+  padding: var(--immersive-px) 0 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__actions button {
+  width: 100%;
+  padding-inline: 8px;
+  font-size: 12px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .immersive-wood-button--danger {
+  color: var(--immersive-wood-selected-text) !important;
+  background-color: var(--immersive-wood-selected) !important;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__header strong,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form h2,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel strong,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel label,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel footer,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form label,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form footer {
+  font-family: ValheimNorse, Georgia, serif;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel input,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form input,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel select,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form select {
+  font-family: ValheimNorse, Georgia, serif;
+}
+
+/* Map-name editing is a carved inset field, not a raised wooden button. */
+.map-workspace[data-ui-mode='immersive'] .map-menu__form .immersive-recessed-field,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel .immersive-recessed-field {
+  box-sizing: border-box;
+  color: var(--immersive-wood-text);
+  background-color: #d9b978;
+  background-image: none;
+  border: var(--immersive-px) solid var(--immersive-toolbar-rim);
+  border-radius: 0;
+  appearance: none;
+  box-shadow: inset 0 var(--immersive-px) 0 var(--immersive-wood-shadow),
+    inset var(--immersive-px) 0 0 var(--immersive-wood-shadow),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-wood-highlight),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-wood-highlight);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__form .immersive-recessed-field:focus-visible,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel .immersive-recessed-field:focus-visible {
+  outline: var(--immersive-px) solid var(--immersive-wood-highlight);
+  outline-offset: 0;
+}
+
+/* The coordinate form is a workspace-level popup. It deliberately sits
+   outside the HUD and responsive-overflow trees, so its panel can use the
+   viewport rather than the triggering button as its containing block. */
+.map-popover-layer {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  pointer-events: none;
+}
+
+.coordinate-navigator__panel--overlay {
+  position: fixed;
+  right: auto;
+  z-index: 6;
+  pointer-events: auto;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay {
+  position: fixed;
+  right: auto;
+  width: min(460px, calc(100vw - calc(var(--immersive-px) * 6)));
+  max-width: calc(100vw - calc(var(--immersive-px) * 6));
+  max-height: calc(100dvh - calc(var(--immersive-px) * 6));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: calc(var(--immersive-px) * 3);
+  padding: calc(var(--immersive-px) * 5);
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: var(--immersive-wood-frame) #d6b778;
+  scrollbar-width: auto;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay strong {
+  font-size: 18px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay .coordinate-navigator__hint {
+  margin-top: 0;
+  font-size: 14px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay label {
+  gap: calc(var(--immersive-px) * 2);
+  font-size: 14px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay .immersive-recessed-field {
+  height: 48px;
+  min-height: 48px;
+  max-height: 48px;
+  padding-inline: calc(var(--immersive-px) * 3);
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay footer {
+  gap: var(--immersive-px);
+  margin-top: var(--immersive-px);
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay footer .immersive-wood-button {
+  padding-inline: calc(var(--immersive-px) * 3);
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay::-webkit-scrollbar {
+  width: calc(var(--immersive-px) * 4);
+  height: calc(var(--immersive-px) * 4);
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay::-webkit-scrollbar-track {
+  background: #d6b778;
+  border: 0;
+  border-radius: 0;
+  box-shadow: inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-wood-outer);
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay::-webkit-scrollbar-thumb {
+  min-height: calc(var(--immersive-px) * 4);
+  background: var(--immersive-wood-frame);
+  border: var(--immersive-px) solid var(--immersive-toolbar-rim);
+  border-radius: 0;
+  box-shadow: inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-wood-outer);
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay::-webkit-scrollbar-button {
+  display: none;
+}
+
+@media (max-width: 520px) {
+  .map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Immersive panel sizing only: enlarge the approved surfaces while keeping
+   every rim, bevel, grain and scrollbar pixel at the existing 4px scale. */
+.map-workspace[data-ui-mode='immersive'] .map-menu__panel {
+  width: min(360px, calc(100vw - calc(var(--immersive-px) * 7)));
+  max-width: calc(100vw - calc(var(--immersive-px) * 7));
+  padding: calc(var(--immersive-px) * 4);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__header {
+  padding: var(--immersive-px) var(--immersive-px) calc(var(--immersive-px) * 3) calc(var(--immersive-px) * 3);
+  font-size: 16px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__header > button,
+.map-workspace[data-ui-mode='immersive'] .map-menu__actions button {
+  height: 52px;
+  min-height: 52px;
+  max-height: 52px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__header > button {
+  padding-inline: calc(var(--immersive-px) * 4);
+  font-size: 16px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__list {
+  max-height: min(60vh, 432px);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__row {
+  grid-template-columns: minmax(0, 1fr) 56px;
+  min-height: 56px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__map-button,
+.map-workspace[data-ui-mode='immersive'] .map-menu__actions-toggle {
+  height: 56px;
+  min-height: 56px;
+  max-height: 56px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__map-button {
+  padding-inline: calc(var(--immersive-px) * 4);
+  font-size: 16px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__actions-toggle {
+  width: 56px;
+  font-size: 24px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__actions {
+  gap: var(--immersive-px);
+  padding-top: var(--immersive-px);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__actions button {
+  padding-inline: calc(var(--immersive-px) * 3);
+  font-size: 14px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__form {
+  gap: calc(var(--immersive-px) * 3);
+  padding: calc(var(--immersive-px) * 2);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__form h2 {
+  font-size: 16px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__form p {
+  font-size: 14px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__form label {
+  gap: calc(var(--immersive-px) * 2);
+  font-size: 14px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__form .immersive-recessed-field {
+  height: 52px;
+  min-height: 52px;
+  max-height: 52px;
+  padding-inline: calc(var(--immersive-px) * 4);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__form footer {
+  gap: calc(var(--immersive-px) * 2);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__form footer button {
+  height: 52px;
+  min-height: 52px;
+  max-height: 52px;
+  padding-inline: calc(var(--immersive-px) * 3);
+  font-size: 14px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__error {
+  margin: calc(var(--immersive-px) * 2) calc(var(--immersive-px) * 2) var(--immersive-px);
+  font-size: 13px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay {
+  width: min(552px, calc(100vw - calc(var(--immersive-px) * 6)));
+  max-width: calc(100vw - calc(var(--immersive-px) * 6));
+  gap: calc(var(--immersive-px) * 4);
+  padding: calc(var(--immersive-px) * 6);
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay strong {
+  font-size: 22px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay .coordinate-navigator__hint,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay label {
+  font-size: 16px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay .immersive-recessed-field {
+  height: 56px;
+  min-height: 56px;
+  max-height: 56px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay footer {
+  gap: calc(var(--immersive-px) * 2);
+  margin-top: calc(var(--immersive-px) * 2);
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay footer .immersive-wood-button {
+  height: 52px;
+  min-height: 52px;
+  max-height: 52px;
+  padding-inline: calc(var(--immersive-px) * 4);
+}
+
+/* Permanent HUD sizing only: enlarge both connected rows while leaving the
+   shared 4px rim, bevel, grain and popup sizing unchanged. */
+.map-workspace[data-ui-mode='immersive'] {
+  --immersive-toolbar-control-height: 52px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-controls .utility-control,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__toggle {
+  height: var(--immersive-toolbar-control-height);
+  min-height: var(--immersive-toolbar-control-height);
+  max-height: var(--immersive-toolbar-control-height);
+  padding-inline: calc(var(--immersive-px) * 4);
+  font-size: 18px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .map-toolbar__tool kbd {
+  margin-left: var(--immersive-px);
+  font-size: 12px;
+}
+
+/* Popup typography only: increase each existing Immersive panel text size by
+   exactly 4px while leaving panel geometry and shared button chrome intact. */
+.map-workspace[data-ui-mode='immersive'] .map-menu__header,
+.map-workspace[data-ui-mode='immersive'] .map-menu__header > button,
+.map-workspace[data-ui-mode='immersive'] .map-menu__map-button {
+  font-size: 20px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__actions button,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form p,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form label,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form footer button {
+  font-size: 18px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__form h2,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form .immersive-recessed-field {
+  font-size: 20px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__error {
+  font-size: 17px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay strong {
+  font-size: 26px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay .coordinate-navigator__hint,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay label,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay footer,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay footer .immersive-wood-button {
+  font-size: 20px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay .immersive-recessed-field {
+  font-size: 20px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay .coordinate-navigator__error {
+  font-size: 15px;
+}
+
+/* Popup typography refinement: add 6px to the current panel type and 3px to
+   each text-bearing control's internal horizontal padding. */
+.map-workspace[data-ui-mode='immersive'] .map-menu__header,
+.map-workspace[data-ui-mode='immersive'] .map-menu__header > button,
+.map-workspace[data-ui-mode='immersive'] .map-menu__map-button {
+  font-size: 26px;
+  padding-inline: 19px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__actions button,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form p,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form label,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form footer button {
+  font-size: 24px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__actions button,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form footer button {
+  padding-inline: 15px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__form h2,
+.map-workspace[data-ui-mode='immersive'] .map-menu__form .immersive-recessed-field {
+  font-size: 26px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__form .immersive-recessed-field {
+  padding-inline: 19px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__error {
+  font-size: 23px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay strong {
+  font-size: 32px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay .coordinate-navigator__hint,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay label,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay footer,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay footer .immersive-wood-button {
+  font-size: 26px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay footer .immersive-wood-button {
+  padding-inline: 19px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay .immersive-recessed-field {
+  font-size: 26px;
+  padding-inline: 15px;
+}
+
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay .coordinate-navigator__error {
+  font-size: 21px;
+}
+
+/* Permanent HUD typography only. Scope through the visible overflow row so
+   popup panels and responsive dropdown contents keep their approved type. */
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item > .utility-control,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item > .map-menu > .map-menu__toggle,
+.map-workspace[data-ui-mode='immersive'] .map-controls .responsive-overflow__visible > .responsive-overflow__item > .coordinate-navigator > .utility-control,
+.map-workspace[data-ui-mode='immersive'] .map-toolbar__tools .responsive-overflow__visible > .responsive-overflow__item > .map-toolbar__tool {
+  font-size: var(--immersive-ui-button-font-size);
+  padding-left: 19px;
+  padding-right: 19px;
+}
+
+.map-workspace[data-ui-mode='immersive'] {
+  --immersive-ui-button-font-size: 23px;
+}
+
+/* Popup controls aligned to the current HUD button typography. Excluded
+   Coordinate help/labels/inputs and the New Map dialog retain their approved
+   independent sizes. */
+.map-workspace[data-ui-mode='immersive'] .map-menu__header,
+.map-workspace[data-ui-mode='immersive'] .map-menu__header > button,
+.map-workspace[data-ui-mode='immersive'] .map-menu__map-button,
+.map-workspace[data-ui-mode='immersive'] .map-menu__actions button,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay strong,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay footer .immersive-wood-button {
+  font-size: var(--immersive-ui-button-font-size);
+}
+
+/* Coordinate Navigator typography now follows the HUD reference uniformly. */
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay strong,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay .coordinate-navigator__hint,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay label,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay .immersive-recessed-field,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay footer,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay footer .immersive-wood-button,
+.map-workspace[data-ui-mode='immersive'] .coordinate-navigator__panel--overlay .coordinate-navigator__error {
+  font-size: var(--immersive-ui-button-font-size);
+}
+
+/* Contextual tool controls remain independent from the connected tool slots. */
+.map-workspace[data-ui-mode='immersive'] .biome-brush-controls {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  gap: var(--immersive-px);
+  margin-left: var(--immersive-px);
+  pointer-events: auto;
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__trigger {
+  height: var(--immersive-toolbar-control-height);
+  min-width: calc(var(--immersive-px) * 48);
+  padding-inline: calc(var(--immersive-px) * 4);
+  gap: calc(var(--immersive-px) * 2);
+  color: var(--immersive-wood-text);
+  font-size: var(--immersive-ui-button-font-size);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__trigger > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__indicator {
+  flex: 0 0 auto;
+  font-size: calc(var(--immersive-ui-button-font-size) * 0.65);
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__trigger:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.map-workspace[data-ui-mode='immersive'] .biome-brush-controls__size {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: calc(var(--immersive-px) * 48);
+  height: var(--immersive-toolbar-control-height);
+  padding-inline: calc(var(--immersive-px) * 3);
+  background: #d9b978;
+  border: var(--immersive-px) solid var(--immersive-toolbar-rim);
+  box-shadow: none;
+}
+
+.map-workspace[data-ui-mode='immersive'] .biome-brush-controls__slider {
+  box-sizing: border-box;
+  width: 100%;
+  height: calc(var(--immersive-px) * 8);
+  margin: 0;
+  padding: 0;
+  cursor: ew-resize;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .biome-brush-controls__slider:focus-visible {
+  outline: var(--immersive-px) solid var(--immersive-wood-highlight);
+  outline-offset: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .biome-brush-controls__slider::-webkit-slider-runnable-track {
+  box-sizing: border-box;
+  height: calc(var(--immersive-px) * 4);
+  background: var(--immersive-wood-face);
+  border: var(--immersive-px) solid var(--immersive-wood-outer);
+  border-radius: 0;
+  box-shadow: inset 0 var(--immersive-px) 0 var(--immersive-wood-shadow),
+    inset var(--immersive-px) 0 0 var(--immersive-wood-shadow);
+}
+
+.map-workspace[data-ui-mode='immersive'] .biome-brush-controls__slider::-webkit-slider-thumb {
+  box-sizing: border-box;
+  width: calc(var(--immersive-px) * 6);
+  height: calc(var(--immersive-px) * 8);
+  margin-top: calc(var(--immersive-px) * -2);
+  appearance: none;
+  background: var(--immersive-wood-light);
+  border: var(--immersive-px) solid var(--immersive-toolbar-rim);
+  border-radius: 0;
+  box-shadow: inset 0 var(--immersive-px) 0 var(--immersive-wood-highlight),
+    inset var(--immersive-px) 0 0 var(--immersive-wood-highlight),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-wood-shadow),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-wood-shadow);
+}
+
+.map-workspace[data-ui-mode='immersive'] .biome-brush-controls__slider:hover::-webkit-slider-thumb {
+  background: var(--immersive-wood-highlight);
+}
+
+.map-workspace[data-ui-mode='immersive'] .biome-brush-controls__slider:active::-webkit-slider-thumb {
+  background: var(--immersive-wood-frame);
+  box-shadow: inset 0 var(--immersive-px) 0 var(--immersive-wood-shadow),
+    inset var(--immersive-px) 0 0 var(--immersive-wood-shadow),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-wood-highlight),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-wood-highlight);
+}
+
+.map-workspace[data-ui-mode='immersive'] .biome-brush-controls__slider::-moz-range-track {
+  box-sizing: border-box;
+  height: calc(var(--immersive-px) * 4);
+  background: var(--immersive-wood-face);
+  border: var(--immersive-px) solid var(--immersive-wood-outer);
+  border-radius: 0;
+  box-shadow: inset 0 var(--immersive-px) 0 var(--immersive-wood-shadow),
+    inset var(--immersive-px) 0 0 var(--immersive-wood-shadow);
+}
+
+.map-workspace[data-ui-mode='immersive'] .biome-brush-controls__slider::-moz-range-progress {
+  height: calc(var(--immersive-px) * 4);
+  background: var(--immersive-wood-light);
+  border: var(--immersive-px) solid var(--immersive-wood-outer);
+  border-radius: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .biome-brush-controls__slider::-moz-range-thumb {
+  box-sizing: border-box;
+  width: calc(var(--immersive-px) * 6);
+  height: calc(var(--immersive-px) * 8);
+  background: var(--immersive-wood-light);
+  border: var(--immersive-px) solid var(--immersive-toolbar-rim);
+  border-radius: 0;
+  box-shadow: inset 0 var(--immersive-px) 0 var(--immersive-wood-highlight),
+    inset var(--immersive-px) 0 0 var(--immersive-wood-highlight),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-wood-shadow),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-wood-shadow);
+}
+
+.map-workspace[data-ui-mode='immersive'] .biome-brush-controls__slider:hover::-moz-range-thumb {
+  background: var(--immersive-wood-highlight);
+}
+
+.map-workspace[data-ui-mode='immersive'] .biome-brush-controls__slider:active::-moz-range-thumb {
+  background: var(--immersive-wood-frame);
+  box-shadow: inset 0 var(--immersive-px) 0 var(--immersive-wood-shadow),
+    inset var(--immersive-px) 0 0 var(--immersive-wood-shadow),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-wood-highlight),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-wood-highlight);
+}
+
+/* Compact popup using the same stepped timber shell and parchment body as
+   the approved Map Library and Coordinate Navigator panels. */
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__popup {
+  position: fixed;
+  z-index: 8;
+  display: flex;
+  box-sizing: border-box;
+  width: min(360px, calc(100vw - calc(var(--immersive-px) * 6)));
+  max-height: calc(100dvh - calc(var(--immersive-px) * 6));
+  padding: calc(var(--immersive-px) * 3);
+  overflow: hidden;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  isolation: isolate;
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__popup::before,
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__popup::after {
+  position: absolute;
+  pointer-events: none;
+  content: '';
+  clip-path: polygon(
+    0 var(--immersive-panel-step),
+    var(--immersive-px) var(--immersive-panel-step),
+    var(--immersive-px) var(--immersive-px),
+    var(--immersive-panel-step) var(--immersive-px),
+    var(--immersive-panel-step) 0,
+    calc(100% - var(--immersive-panel-step)) 0,
+    calc(100% - var(--immersive-panel-step)) var(--immersive-px),
+    calc(100% - var(--immersive-px)) var(--immersive-px),
+    calc(100% - var(--immersive-px)) var(--immersive-panel-step),
+    100% var(--immersive-panel-step),
+    100% calc(100% - var(--immersive-panel-step)),
+    calc(100% - var(--immersive-px)) calc(100% - var(--immersive-panel-step)),
+    calc(100% - var(--immersive-px)) calc(100% - var(--immersive-px)),
+    calc(100% - var(--immersive-panel-step)) calc(100% - var(--immersive-px)),
+    calc(100% - var(--immersive-panel-step)) 100%,
+    var(--immersive-panel-step) 100%,
+    var(--immersive-panel-step) calc(100% - var(--immersive-px)),
+    var(--immersive-px) calc(100% - var(--immersive-px)),
+    var(--immersive-px) calc(100% - var(--immersive-panel-step)),
+    0 calc(100% - var(--immersive-panel-step))
+  );
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__popup::before {
+  z-index: -2;
+  inset: 0;
+  background: var(--immersive-wood-outer);
+  filter: drop-shadow(var(--immersive-px) var(--immersive-px) 0 var(--immersive-deep-ink));
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__popup::after {
+  z-index: -1;
+  inset: var(--immersive-px);
+  background: #d9b978;
+  box-shadow: inset var(--immersive-px) 0 0 var(--immersive-wood-frame),
+    inset 0 var(--immersive-px) 0 var(--immersive-wood-frame);
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__list {
+  display: grid;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  gap: var(--immersive-px);
+  padding: var(--immersive-px);
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--immersive-wood-frame) #d6b778;
+  scrollbar-width: auto;
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__option {
+  justify-content: flex-start;
+  min-height: var(--immersive-toolbar-control-height);
+  padding-inline: calc(var(--immersive-px) * 4);
+  cursor: pointer;
+  font-size: var(--immersive-ui-button-font-size);
+  line-height: 1;
+  text-align: left;
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__option:focus-visible {
+  outline: var(--immersive-px) solid var(--immersive-wood-highlight);
+  outline-offset: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__option--active {
+  outline: var(--immersive-px) solid var(--immersive-wood-highlight);
+  outline-offset: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__list::-webkit-scrollbar {
+  width: calc(var(--immersive-px) * 4);
+  height: calc(var(--immersive-px) * 4);
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__list::-webkit-scrollbar-track {
+  background: #d6b778;
+  border: 0;
+  border-radius: 0;
+  box-shadow: inset var(--immersive-px) 0 0 var(--immersive-wood-outer),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-wood-outer);
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__list::-webkit-scrollbar-thumb {
+  min-height: calc(var(--immersive-px) * 4);
+  background: var(--immersive-wood-frame);
+  border: var(--immersive-px) solid var(--immersive-toolbar-rim);
+  border-radius: 0;
+  box-shadow: inset var(--immersive-px) 0 0 var(--immersive-wood-light),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-wood-outer);
+}
+
+.map-workspace[data-ui-mode='immersive'] .contextual-picker__list::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* The right HUD is a stack: the connected tools remain the upper panel while
+   tool-specific controls are rendered as a separate, right-aligned panel. */
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__tools {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--immersive-px);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__tools > .map-toolbar {
+  flex: 0 0 auto;
+  width: max-content;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__tools > .tool-context-panel {
+  align-self: flex-end;
+}
+
+.map-workspace[data-ui-mode='immersive'] .tool-context-panel .biome-brush-controls {
+  align-self: stretch;
+  margin-left: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .tool-context-panel > .contextual-picker {
+  align-self: stretch;
+}
+
+.map-workspace[data-ui-mode='immersive'] .tool-context-panel {
+  gap: var(--immersive-px);
+}
+
+.map-workspace[data-ui-mode='immersive'] .tool-context-panel__delete {
+  align-self: stretch;
+  box-sizing: border-box;
+  height: var(--immersive-toolbar-control-height);
+  min-height: var(--immersive-toolbar-control-height);
+  max-height: var(--immersive-toolbar-control-height);
+  padding-inline: 12px;
+  color: var(--immersive-wood-selected-text);
+  font: inherit;
+  font-size: var(--immersive-ui-button-font-size);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Selected-marker captions are edited inline with the contextual controls.
+   Keep this as a recessed field rather than reusing the floating inspector
+   shell, so the field remains a selected-object control in the HUD stack. */
+.map-workspace[data-ui-mode='immersive'] .marker-caption-field {
+  display: flex;
+  align-self: stretch;
+  min-width: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-caption-field__input {
+  box-sizing: border-box;
+  width: clamp(220px, 24vw, 280px);
+  max-width: calc(100vw - (var(--immersive-hud-visible-edge-inset) * 2));
+  height: var(--immersive-toolbar-control-height);
+  min-height: var(--immersive-toolbar-control-height);
+  max-height: var(--immersive-toolbar-control-height);
+  padding-inline: calc(var(--immersive-px) * 3);
+  color: var(--immersive-wood-text);
+  font-family: ValheimNorse, Georgia, serif;
+  font-size: var(--immersive-ui-button-font-size);
+  line-height: 1;
+  background: #d9b978;
+  border: var(--immersive-px) solid var(--immersive-toolbar-rim);
+  border-radius: 0;
+  outline: 0;
+  appearance: none;
+  box-shadow: inset 0 var(--immersive-px) 0 var(--immersive-wood-shadow),
+    inset var(--immersive-px) 0 0 var(--immersive-wood-shadow),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-wood-highlight),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-wood-highlight);
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-caption-field__input:focus-visible {
+  outline: var(--immersive-px) solid var(--immersive-wood-highlight);
+  outline-offset: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-caption-field__input:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+/* The debug readout is an opt-in bottom-left popup, not a permanent panel. */
+.map-workspace[data-ui-mode='immersive'] .debug-info {
+  left: var(--immersive-hud-visible-edge-inset);
+  bottom: var(--immersive-hud-visible-edge-inset);
+}
+
+.map-workspace[data-ui-mode='immersive'] .immersive-compass-rose {
+  position: fixed;
+  right: var(--immersive-hud-visible-edge-inset);
+  bottom: var(--immersive-hud-visible-edge-inset);
+  z-index: 3;
+  display: block;
+  width: min(160px, calc(100vw - (var(--immersive-hud-visible-edge-inset) * 2)));
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: contain;
+  opacity: 0.66;
+  pointer-events: none;
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__button {
+  width: var(--immersive-toolbar-control-height);
+  height: var(--immersive-toolbar-control-height);
+  min-width: var(--immersive-toolbar-control-height);
+  min-height: var(--immersive-toolbar-control-height);
+  max-width: var(--immersive-toolbar-control-height);
+  max-height: var(--immersive-toolbar-control-height);
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__symbol {
+  position: relative;
+  top: -3px;
+  z-index: 3;
+  box-sizing: border-box;
+  width: calc(var(--immersive-px) * 5);
+  height: calc(var(--immersive-px) * 5);
+  font-family: ValheimNorse, Georgia, serif;
+  font-size: calc(var(--immersive-ui-button-font-size) + 2px);
+  line-height: 1;
+  border: 0;
+  border-radius: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__popup {
+  position: relative;
+  bottom: auto;
+  left: auto;
+  width: max-content;
+  min-width: 248px;
+  max-width: calc(100vw - (var(--hud-edge-inset) + var(--hud-edge-inset)));
+  padding: calc(var(--immersive-px) * 3);
+  overflow: visible;
+  font-family: ValheimNorse, Georgia, serif;
+  font-size: calc(var(--immersive-ui-button-font-size) - 3px);
+  line-height: 1.35;
+  color: var(--immersive-wood-text);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  isolation: isolate;
+  clip-path: polygon(
+    0 var(--immersive-panel-step),
+    var(--immersive-px) var(--immersive-panel-step),
+    var(--immersive-px) var(--immersive-px),
+    var(--immersive-panel-step) var(--immersive-px),
+    var(--immersive-panel-step) 0,
+    calc(100% - var(--immersive-panel-step)) 0,
+    calc(100% - var(--immersive-panel-step)) var(--immersive-px),
+    calc(100% - var(--immersive-px)) var(--immersive-px),
+    calc(100% - var(--immersive-px)) var(--immersive-panel-step),
+    100% var(--immersive-panel-step),
+    100% calc(100% - var(--immersive-panel-step)),
+    calc(100% - var(--immersive-px)) calc(100% - var(--immersive-panel-step)),
+    calc(100% - var(--immersive-px)) calc(100% - var(--immersive-px)),
+    calc(100% - var(--immersive-panel-step)) calc(100% - var(--immersive-px)),
+    calc(100% - var(--immersive-panel-step)) 100%,
+    var(--immersive-panel-step) 100%,
+    var(--immersive-panel-step) calc(100% - var(--immersive-px)),
+    var(--immersive-px) calc(100% - var(--immersive-px)),
+    var(--immersive-px) calc(100% - var(--immersive-panel-step)),
+    0 calc(100% - var(--immersive-panel-step))
+  );
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__popup::before,
+.map-workspace[data-ui-mode='immersive'] .debug-info__popup::after {
+  position: absolute;
+  pointer-events: none;
+  content: '';
+  clip-path: inherit;
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__popup::before {
+  z-index: -2;
+  inset: 0;
+  background: var(--immersive-wood-outer);
+  filter: drop-shadow(var(--immersive-px) var(--immersive-px) 0 var(--immersive-deep-ink));
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__popup::after {
+  z-index: -1;
+  inset: var(--immersive-px);
+  background: #d9b978;
+  box-shadow: inset var(--immersive-px) 0 0 var(--immersive-wood-frame),
+    inset 0 var(--immersive-px) 0 var(--immersive-wood-frame);
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__popup > * {
+  position: relative;
+  z-index: 1;
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__actions {
+  gap: var(--immersive-px);
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__settings-line,
+.map-workspace[data-ui-mode='immersive'] .debug-info__zoom-line {
+  gap: calc(var(--immersive-px) * 2);
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__zoom-line {
+  margin-bottom: var(--immersive-px);
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__readout {
+  gap: var(--immersive-px);
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__coordinate-line {
+  gap: var(--immersive-px);
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__action {
+  position: relative;
+  z-index: 3;
+  width: calc(var(--immersive-px) * 8);
+  height: calc(var(--immersive-px) * 8);
+  min-width: calc(var(--immersive-px) * 8);
+  min-height: calc(var(--immersive-px) * 8);
+  padding: 0;
+  font-family: ValheimNorse, Georgia, serif;
+  font-size: calc(var(--immersive-ui-button-font-size) * 0.55);
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__settings h2 {
+  margin: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__coordinate-options {
+  gap: var(--immersive-px);
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__coordinate-option {
+  min-height: calc(var(--immersive-px) * 8);
+  gap: calc(var(--immersive-px) * 2);
+  padding: var(--immersive-px);
+  color: var(--immersive-wood-text);
+  border: 0;
+  font-family: ValheimNorse, Georgia, serif;
+  font-size: inherit;
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__coordinate-option[aria-checked='true'] {
+  color: var(--immersive-wood-selected-text);
+  background: var(--immersive-wood-selected);
+  box-shadow: inset var(--immersive-px) 0 0 var(--immersive-wood-frame),
+    inset 0 var(--immersive-px) 0 var(--immersive-wood-frame),
+    inset calc(var(--immersive-px) * -1) 0 0 var(--immersive-wood-highlight),
+    inset 0 calc(var(--immersive-px) * -1) 0 var(--immersive-wood-highlight);
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__coordinate-option:focus-visible {
+  outline: var(--immersive-px) solid var(--immersive-wood-highlight);
+  outline-offset: 0;
+}
+
+/* The supplied marker artwork is an icon-only overlay anchored by the rendered
+   right HUD stack. Its inline position follows that stack on resize/wrap. */
+.marker-gallery {
+  position: fixed;
+  z-index: 12;
+  top: 12px;
+  left: 12px;
+  box-sizing: border-box;
+  width: min(640px, calc(100vw - 24px));
+  max-height: min(72dvh, calc(100dvh - 24px));
+  padding: 12px;
+  overflow: hidden;
+  color: #454940;
+  background: rgb(244 242 235 / 96%);
+  border: 1px solid rgb(80 84 73 / 18%);
+  border-radius: 8px;
+  box-shadow: 0 3px 8px rgb(42 45 39 / 18%);
+}
+
+.marker-gallery__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 8px;
+  max-height: calc(min(72dvh, calc(100dvh - 24px)) - 24px);
+  padding: 4px;
+  overflow-y: auto;
+}
+
+.marker-gallery__item {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 72px;
+  padding: 8px;
+  cursor: pointer;
+  aspect-ratio: 1;
+}
+
+.marker-gallery__item img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-gallery {
+  width: min(640px, calc(100vw - calc(var(--immersive-px) * 6)));
+  max-height: min(72dvh, calc(100dvh - calc(var(--immersive-px) * 6)));
+  padding: calc(var(--immersive-px) * 4);
+  color: var(--immersive-wood-text);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  isolation: isolate;
+  clip-path: polygon(
+    0 var(--immersive-panel-step),
+    var(--immersive-px) var(--immersive-panel-step),
+    var(--immersive-px) var(--immersive-px),
+    var(--immersive-panel-step) var(--immersive-px),
+    var(--immersive-panel-step) 0,
+    calc(100% - var(--immersive-panel-step)) 0,
+    calc(100% - var(--immersive-panel-step)) var(--immersive-px),
+    calc(100% - var(--immersive-px)) var(--immersive-px),
+    calc(100% - var(--immersive-px)) var(--immersive-panel-step),
+    100% var(--immersive-panel-step),
+    100% calc(100% - var(--immersive-panel-step)),
+    calc(100% - var(--immersive-px)) calc(100% - var(--immersive-panel-step)),
+    calc(100% - var(--immersive-px)) calc(100% - var(--immersive-px)),
+    calc(100% - var(--immersive-panel-step)) calc(100% - var(--immersive-px)),
+    calc(100% - var(--immersive-panel-step)) 100%,
+    var(--immersive-panel-step) 100%,
+    var(--immersive-panel-step) calc(100% - var(--immersive-px)),
+    var(--immersive-px) calc(100% - var(--immersive-px)),
+    var(--immersive-px) calc(100% - var(--immersive-panel-step)),
+    0 calc(100% - var(--immersive-panel-step))
+  );
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-gallery::before,
+.map-workspace[data-ui-mode='immersive'] .marker-gallery::after {
+  position: absolute;
+  pointer-events: none;
+  content: '';
+  clip-path: inherit;
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-gallery::before {
+  z-index: -2;
+  inset: 0;
+  background: var(--immersive-wood-outer);
+  filter: drop-shadow(var(--immersive-px) var(--immersive-px) 0 var(--immersive-deep-ink));
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-gallery::after {
+  z-index: -1;
+  inset: var(--immersive-px);
+  background: #d9b978;
+  box-shadow: inset var(--immersive-px) 0 0 var(--immersive-wood-frame),
+    inset 0 var(--immersive-px) 0 var(--immersive-wood-frame);
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-gallery__grid {
+  position: relative;
+  z-index: 1;
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--immersive-px) * 18), 1fr));
+  gap: calc(var(--immersive-px) * 2);
+  max-height: calc(min(72dvh, calc(100dvh - calc(var(--immersive-px) * 6))) - (var(--immersive-px) * 8));
+  padding: var(--immersive-px);
+  scrollbar-color: var(--immersive-wood-frame) #caa86a;
+  scrollbar-width: auto;
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-gallery__grid::-webkit-scrollbar {
+  width: calc(var(--immersive-px) * 3);
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-gallery__grid::-webkit-scrollbar-track {
+  background: #caa86a;
+  box-shadow: inset var(--immersive-px) 0 0 rgb(43 26 18 / 45%),
+    inset 0 var(--immersive-px) 0 rgb(43 26 18 / 45%);
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-gallery__grid::-webkit-scrollbar-thumb {
+  background: var(--immersive-wood-frame);
+  border: var(--immersive-px) solid var(--immersive-wood-outer);
+  border-radius: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-gallery__item {
+  min-height: calc(var(--immersive-px) * 18);
+  /* Current padding was 16px; reduce it by exactly 2px to the final
+     original-plus-6px value without changing the cell box. */
+  padding: calc(var(--immersive-px) * 3.5);
+  color: var(--immersive-wood-text);
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-gallery__item[aria-current='true'] {
+  color: var(--immersive-wood-selected-text);
+  background-color: var(--immersive-wood-selected);
+  box-shadow: inset 0 2px 0 rgb(231 183 111 / 36%),
+    inset 2px 0 0 rgb(231 183 111 / 36%),
+    inset 0 -2px 0 var(--immersive-deep-ink),
+    inset -2px 0 0 var(--immersive-deep-ink);
+}
+
+.map-workspace[data-ui-mode='immersive'] .marker-gallery__item:focus-visible {
+  outline: var(--immersive-px) solid var(--immersive-wood-highlight);
+  outline-offset: 0;
 }

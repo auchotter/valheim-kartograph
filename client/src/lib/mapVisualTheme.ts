@@ -30,7 +30,7 @@ export const MAP_VISUAL_THEMES: Readonly<Record<MapAppearance, MapVisualTheme>> 
   },
   immersive: {
     parchmentColor: 0xd8bf87,
-    coastlineCore: [0.294, 0.208, 0.153, 0.78],
+    coastlineCore: [0.251, 0.173, 0.129, 0.84],
     grid: {
       normalColor: 0x806341,
       majorColor: 0x69492f,

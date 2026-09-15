@@ -12,6 +12,7 @@ type MenuForm =
 interface MapMenuProps {
   maps: readonly MapRecord[];
   currentMapId: Id | null;
+  showSelectionTick: boolean;
   disabled: boolean;
   error: string | null;
   onSelectMap: (mapId: Id) => Promise<MapActionResult>;
@@ -24,6 +25,7 @@ interface MapMenuProps {
 export function MapMenu({
   maps,
   currentMapId,
+  showSelectionTick,
   disabled,
   error,
   onSelectMap,
@@ -60,14 +62,15 @@ export function MapMenu({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
+        event.stopPropagation();
         close();
       }
     };
     window.addEventListener('pointerdown', onPointerDown);
-    window.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keydown', onKeyDown);
     return () => {
       window.removeEventListener('pointerdown', onPointerDown);
-      window.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('keydown', onKeyDown);
     };
   }, [open]);
 
@@ -124,7 +127,7 @@ export function MapMenu({
     <div ref={rootRef} className="map-menu">
       <button
         type="button"
-        className="map-menu__toggle"
+        className="map-menu__toggle utility-control"
         title="Open the map library and manage maps"
         aria-label="Open the map library and manage maps"
         aria-expanded={open}
@@ -144,8 +147,8 @@ export function MapMenu({
             <>
               <header className="map-menu__header">
                 <strong>Maps</strong>
-                <button type="button" disabled={disabled} onClick={() => openForm({ kind: 'create' })}>
-                  + New map
+                <button type="button" className="immersive-wood-button" disabled={disabled} onClick={() => openForm({ kind: 'create' })}>
+                  NEW MAP
                 </button>
               </header>
 
@@ -157,19 +160,21 @@ export function MapMenu({
                     <div key={map.id} className={selected ? 'map-menu__row map-menu__row--selected' : 'map-menu__row'}>
                       <button
                         type="button"
-                        className="map-menu__map-button"
+                        className="map-menu__map-button immersive-wood-button"
                         disabled={disabled}
                         aria-current={selected ? 'true' : undefined}
                         onClick={() => void selectMap(map.id)}
                       >
-                        <span className="map-menu__selection" aria-hidden="true">
-                          {selected ? '✓' : ''}
-                        </span>
+                        {showSelectionTick && (
+                          <span className="map-menu__selection" aria-hidden="true">
+                            {selected ? '✓' : ''}
+                          </span>
+                        )}
                         <span>{map.name}</span>
                       </button>
                       <button
                         type="button"
-                        className="map-menu__actions-toggle"
+                        className="map-menu__actions-toggle immersive-wood-button"
                         aria-label={`Actions for ${map.name}`}
                         aria-expanded={actionsOpen}
                         disabled={disabled}
@@ -179,15 +184,15 @@ export function MapMenu({
                       </button>
                       {actionsOpen && (
                         <div className="map-menu__actions" role="group" aria-label={`Actions for ${map.name}`}>
-                          <button type="button" disabled={disabled} onClick={() => openForm({ kind: 'rename', map })}>
+                          <button type="button" className="immersive-wood-button" disabled={disabled} onClick={() => openForm({ kind: 'rename', map })}>
                             Rename
                           </button>
-                          <button type="button" disabled={disabled} onClick={() => openForm({ kind: 'duplicate', map })}>
+                          <button type="button" className="immersive-wood-button" disabled={disabled} onClick={() => openForm({ kind: 'duplicate', map })}>
                             Duplicate
                           </button>
                           <button
                             type="button"
-                            className="map-menu__delete"
+                            className="map-menu__delete immersive-wood-button immersive-wood-button--danger"
                             disabled={disabled}
                             onClick={() => openForm({ kind: 'delete', map })}
                           >
@@ -212,6 +217,7 @@ export function MapMenu({
                 <label>
                   <span>Map name</span>
                   <input
+                    className="immersive-recessed-field"
                     autoFocus
                     value={name}
                     maxLength={200}
@@ -222,10 +228,10 @@ export function MapMenu({
               )}
               {(formError ?? error) !== null && <p className="map-menu__error" role="alert">{formError ?? error}</p>}
               <footer>
-                <button type="button" disabled={disabled} onClick={() => openFormBack(setForm, setFormError)}>
+                <button type="button" className="immersive-wood-button" disabled={disabled} onClick={() => openFormBack(setForm, setFormError)}>
                   Cancel
                 </button>
-                <button type="submit" disabled={disabled} className={form.kind === 'delete' ? 'map-menu__delete' : undefined}>
+                <button type="submit" disabled={disabled} className={form.kind === 'delete' ? 'map-menu__delete immersive-wood-button immersive-wood-button--danger' : 'immersive-wood-button'}>
                   {form.kind === 'delete' ? 'Delete map' : form.kind === 'rename' ? 'Rename map' : 'Save'}
                 </button>
               </footer>

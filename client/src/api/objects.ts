@@ -1,4 +1,4 @@
-import type { Biome, BiomeStroke, Id, Marker, Path, PathGeometryType, WorldPoint } from '../../../shared/domain';
+import type { Biome, BiomeStroke, Id, Label, Marker, Path, PathGeometryType, WorldPoint } from '../../../shared/domain';
 import { requestJson } from './http';
 
 export interface BiomeStrokeCreate {
@@ -28,6 +28,12 @@ interface MarkerMutationResponse {
   idempotent: boolean;
 }
 
+interface LabelMutationResponse {
+  object: Label;
+  mapRevision: number;
+  idempotent: boolean;
+}
+
 export interface PathCreate {
   id: Id;
   objectType: 'path';
@@ -47,6 +53,16 @@ export interface MarkerCreate {
   note: null;
   sizeScale: number;
   directionDegrees: number | null;
+}
+
+export interface LabelCreate {
+  id: Id;
+  objectType: 'label';
+  x: number;
+  y: number;
+  text: string;
+  fontSize: number;
+  rotationDegrees: number;
 }
 
 export async function createBiomeStroke(
@@ -158,6 +174,57 @@ export async function deleteMarker(
   objectId: Id,
   baseObjectVersion: number,
 ): Promise<MarkerMutationResponse> {
+  return requestJson(`/api/maps/${mapId}/objects/${objectId}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ actorId, clientOperationId, baseObjectVersion }),
+  });
+}
+
+export async function createLabel(
+  mapId: Id,
+  actorId: Id,
+  clientOperationId: Id,
+  object: LabelCreate,
+): Promise<LabelMutationResponse> {
+  return requestJson(`/api/maps/${mapId}/objects`, {
+    method: 'POST',
+    body: JSON.stringify({ actorId, clientOperationId, object }),
+  });
+}
+
+export async function updateLabel(
+  mapId: Id,
+  actorId: Id,
+  clientOperationId: Id,
+  baseObjectVersion: number,
+  object: Label,
+): Promise<LabelMutationResponse> {
+  return requestJson(`/api/maps/${mapId}/objects/${object.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      actorId,
+      clientOperationId,
+      baseObjectVersion,
+      object: {
+        id: object.id,
+        objectType: 'label',
+        x: object.x,
+        y: object.y,
+        text: object.text,
+        fontSize: object.fontSize,
+        rotationDegrees: object.rotationDegrees,
+      },
+    }),
+  });
+}
+
+export async function deleteLabel(
+  mapId: Id,
+  actorId: Id,
+  clientOperationId: Id,
+  objectId: Id,
+  baseObjectVersion: number,
+): Promise<LabelMutationResponse> {
   return requestJson(`/api/maps/${mapId}/objects/${objectId}`, {
     method: 'DELETE',
     body: JSON.stringify({ actorId, clientOperationId, baseObjectVersion }),

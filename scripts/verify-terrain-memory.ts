@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { BIOMES, biomeStyle } from '../client/src/lib/biomeStyles.ts';
 import {
-  BIOME_PATTERN_SOURCE_RESOLUTION,
   IMMERSIVE_BIOME_PATTERN_SOURCE_RESOLUTION,
 } from '../client/src/lib/biomeTextures.ts';
 
@@ -41,55 +40,44 @@ assert.match(rendererSource, /texture\(uTexture, vTextureCoord\)/);
 assert.match(rendererSource, /graphic\.stroke\(\{[\s\S]*texture,/);
 assert.match(rendererSource, /blendMode\s*=\s*'erase'/);
 
-// Source patterns retain their original 192-world-unit tile. Modern uses its
-// fixed 8× backing canvas; Immersive uses a separate fixed 0.375× source. Both
-// remain one appearance cache, never a stroke/zoom cache.
-assert.equal(BIOME_PATTERN_SOURCE_RESOLUTION, 8);
+// Source patterns retain their original 192-world-unit tile and one
+// fixed source shared by all strokes and zoom levels.
 assert.equal(IMMERSIVE_BIOME_PATTERN_SOURCE_RESOLUTION, 0.375);
 for (const biome of BIOMES) {
   assert.equal(biomeStyle(biome).tileSize, 192);
-  assert.equal(biomeStyle(biome).tileSize * BIOME_PATTERN_SOURCE_RESOLUTION, 1536);
+  assert.equal(biomeStyle(biome).tileSize * IMMERSIVE_BIOME_PATTERN_SOURCE_RESOLUTION, 72);
 }
 assert.deepEqual(
   {
-    baseHex: biomeStyle('mountains', 'immersive').baseHex,
-    markHex: biomeStyle('mountains', 'immersive').markHex,
-    snowHex: biomeStyle('mountains', 'immersive').snowHex,
+    baseHex: biomeStyle('mountains').baseHex,
+    markHex: biomeStyle('mountains').markHex,
+    snowHex: biomeStyle('mountains').snowHex,
   },
   { baseHex: '#D2C9B5', markHex: '#938D80', snowHex: '#E9E3D3' },
 );
 assert.deepEqual(
   {
-    baseHex: biomeStyle('deep_north', 'immersive').baseHex,
-    markHex: biomeStyle('deep_north', 'immersive').markHex,
-    snowHex: biomeStyle('deep_north', 'immersive').snowHex,
+    baseHex: biomeStyle('deep_north').baseHex,
+    markHex: biomeStyle('deep_north').markHex,
+    snowHex: biomeStyle('deep_north').snowHex,
   },
   { baseHex: '#E5E0D5', markHex: '#AAA69C', snowHex: '#FAF9F5' },
 );
-assert.deepEqual(biomeStyle('mountains', 'modern').baseHex, '#D9DEE1');
-assert.deepEqual(biomeStyle('deep_north', 'modern').baseHex, '#5F8396');
-assert.notEqual(biomeStyle('deep_north', 'immersive').baseHex, biomeStyle('ocean', 'immersive').baseHex);
+assert.notEqual(biomeStyle('deep_north').baseHex, biomeStyle('ocean').baseHex);
 assert.match(biomeTextureSource, /const textureCache = new Map<Biome, Texture>\(\)/);
 assert.match(biomeTextureSource, /IMMERSIVE_BIOME_PATTERN_SOURCE_RESOLUTION = 0\.375/);
-assert.match(biomeTextureSource, /activeSourceResolution/);
-assert.match(biomeTextureSource, /activeScaleMode/);
 assert.match(biomeTextureSource, /canvas\.width = style\.tileSize \* sourceResolution/);
 assert.match(biomeTextureSource, /canvas\.height = style\.tileSize \* sourceResolution/);
 assert.match(biomeTextureSource, /context\.scale\(sourceResolution, sourceResolution\)/);
 assert.match(biomeTextureSource, /resolution: sourceResolution/);
-assert.match(biomeTextureSource, /scaleMode/);
+assert.match(biomeTextureSource, /const scaleMode = 'nearest' as const/);
 assert.match(biomeTextureSource, /drawImmersiveBaseVariation/);
 assert.match(biomeTextureSource, /for \(let index = 0; index < 3200; index \+= 1\)/);
-assert.match(biomeTextureSource, /activeTextureAppearance === 'immersive'/);
 assert.match(biomeTextureSource, /scaleMode/);
 assert.match(biomeTextureSource, /const width = random\(\) < 0\.68 \? 3 : random\(\) < 0\.93 \? 4 : 5/);
 assert.match(biomeTextureSource, /const height = random\(\) < 0\.2 \? 2 : random\(\) < 0\.92 \? 3 : 4/);
 assert.doesNotMatch(biomeTextureSource, /window\.devicePixelRatio|requestAnimationFrame/);
-assert.match(biomeTextureSource, /setBiomeTextureAppearance/);
-assert.match(biomeTextureSource, /texture\.destroy\(true\)/);
-assert.match(biomeTextureSource, /textureCache\.clear\(\)/);
-assert.match(biomeTextureSource, /activeTextureAppearance/);
-assert.match(biomeStylesSource, /IMMERSIVE_BIOME_COLORS/);
+assert.match(biomeStylesSource, /export const BIOME_STYLES/);
 
 // Immersive paper uses three deterministic, cached source textures applied to
 // world-space Graphics. It is not baked into each biome/stroke.

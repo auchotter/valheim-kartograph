@@ -178,6 +178,15 @@ function verifyFreshSchema(database: Database.Database): void {
 
   insertObject(database, 'label-cascade', 'label', 300, 13);
   database.prepare("INSERT INTO labels (object_id, x, y, text) VALUES ('label-cascade', 0, 0, 'Label')").run();
+  assert.deepEqual(
+    database.prepare('SELECT font_size, rotation_degrees FROM labels WHERE object_id = ?').get('label-cascade'),
+    { font_size: 16, rotation_degrees: 0 },
+  );
+  insertObject(database, 'label-invalid-rotation', 'label', 300, 14);
+  assert.throws(() =>
+    database.prepare("INSERT INTO labels (object_id, x, y, text, rotation_degrees) VALUES (?, 0, 0, 'Label', 360)")
+      .run('label-invalid-rotation'),
+  );
   database.prepare("DELETE FROM map_objects WHERE id = 'label-cascade'").run();
   assert.equal(database.prepare("SELECT 1 FROM labels WHERE object_id = 'label-cascade'").get(), undefined);
 }

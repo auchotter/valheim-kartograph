@@ -1,5 +1,4 @@
 import type { Biome } from '../../../shared/domain';
-import type { MapAppearance } from './mapAppearance';
 
 export interface BiomeStyle {
   label: string;
@@ -16,107 +15,84 @@ export interface BiomeStyle {
 export const BIOME_STYLES: Readonly<Record<Biome, BiomeStyle>> = {
   ocean: {
     label: 'Ocean',
-    baseHex: '#B7CDD2',
-    markHex: '#6F929E',
-    snowHex: '#F4F7F7',
+    baseHex: '#71959A',
+    markHex: '#496E72',
+    snowHex: '#E9E3D3',
     tileSize: 192,
     drawPattern: drawOceanPattern,
   },
   meadows: {
     label: 'Meadows',
-    baseHex: '#91A96B',
-    markHex: '#6F8754',
-    snowHex: '#F4F7F7',
+    baseHex: '#899A52',
+    markHex: '#5D6D37',
+    snowHex: '#E9E3D3',
     tileSize: 192,
     drawPattern: drawMeadowPattern,
   },
   black_forest: {
     label: 'Black Forest',
-    baseHex: '#365E4B',
-    markHex: '#244536',
-    snowHex: '#F4F7F7',
+    baseHex: '#344E38',
+    markHex: '#223527',
+    snowHex: '#E9E3D3',
     tileSize: 192,
     drawPattern: drawBlackForestPattern,
   },
   swamp: {
     label: 'Swamp',
-    baseHex: '#78684B',
-    markHex: '#584C38',
-    snowHex: '#F4F7F7',
+    baseHex: '#6A5938',
+    markHex: '#473B28',
+    snowHex: '#E9E3D3',
     tileSize: 192,
     drawPattern: drawSwampPattern,
   },
   mountains: {
     label: 'Mountains',
-    baseHex: '#D9DEE1',
-    markHex: '#A4ADB4',
-    snowHex: '#F4F7F7',
+    baseHex: '#D2C9B5',
+    markHex: '#938D80',
+    snowHex: '#E9E3D3',
     tileSize: 192,
     drawPattern: drawMountainPattern,
   },
   plains: {
     label: 'Plains',
-    baseHex: '#C4A75E',
-    markHex: '#9B7F3F',
-    snowHex: '#F4F7F7',
+    baseHex: '#C19A4F',
+    markHex: '#866831',
+    snowHex: '#E9E3D3',
     tileSize: 192,
     drawPattern: drawPlainsPattern,
   },
   mistlands: {
     label: 'Mistlands',
-    baseHex: '#81798D',
-    markHex: '#625A70',
-    snowHex: '#F4F7F7',
+    baseHex: '#74677B',
+    markHex: '#51475B',
+    snowHex: '#E9E3D3',
     tileSize: 192,
     drawPattern: drawMistlandsPattern,
   },
   ashlands: {
     label: 'Ashlands',
-    baseHex: '#924E3E',
-    markHex: '#5F332B',
-    snowHex: '#F4F7F7',
+    baseHex: '#8D4936',
+    markHex: '#603025',
+    snowHex: '#E9E3D3',
     tileSize: 192,
     drawPattern: drawAshlandsPattern,
   },
   lava: {
     label: 'Lava',
-    baseHex: '#D79A35',
-    markHex: '#A64B27',
-    snowHex: '#F4F7F7',
+    baseHex: '#CD742C',
+    markHex: '#903E22',
+    snowHex: '#E9E3D3',
     tileSize: 192,
     drawPattern: drawLavaPattern,
   },
   deep_north: {
     label: 'Deep North',
-    baseHex: '#5F8396',
-    markHex: '#B7CDD2',
-    // The original Deep North motif uses its mark colour for the snowflake
-    // details; retaining it keeps Modern pixel-for-pixel unchanged.
-    snowHex: '#B7CDD2',
+    baseHex: '#E5E0D5',
+    markHex: '#AAA69C',
+    snowHex: '#FAF9F5',
     tileSize: 192,
     drawPattern: drawDeepNorthPattern,
   },
-};
-
-// Deep North is intentionally frozen independently from Mountain. This keeps
-// the approved pale icy palette stable if the neighboring snow biome changes.
-const IMMERSIVE_DEEP_NORTH_APPROVED = {
-  baseHex: '#E5E0D5' as const,
-  markHex: '#AAA69C' as const,
-  snowHex: '#FAF9F5' as const,
-};
-
-const IMMERSIVE_BIOME_COLORS: Readonly<Record<Biome, Pick<BiomeStyle, 'baseHex' | 'markHex' | 'snowHex'>>> = {
-  ocean: { baseHex: '#71959A', markHex: '#496E72', snowHex: '#E9E3D3' },
-  meadows: { baseHex: '#899A52', markHex: '#5D6D37', snowHex: '#E9E3D3' },
-  black_forest: { baseHex: '#344E38', markHex: '#223527', snowHex: '#E9E3D3' },
-  swamp: { baseHex: '#6A5938', markHex: '#473B28', snowHex: '#E9E3D3' },
-  mountains: { baseHex: '#D2C9B5', markHex: '#938D80', snowHex: '#E9E3D3' },
-  plains: { baseHex: '#C19A4F', markHex: '#866831', snowHex: '#E9E3D3' },
-  mistlands: { baseHex: '#74677B', markHex: '#51475B', snowHex: '#E9E3D3' },
-  ashlands: { baseHex: '#8D4936', markHex: '#603025', snowHex: '#E9E3D3' },
-  lava: { baseHex: '#CD742C', markHex: '#903E22', snowHex: '#E9E3D3' },
-  deep_north: IMMERSIVE_DEEP_NORTH_APPROVED,
 };
 
 /** Deliberate toolbar order; this is not derived from object-key insertion order. */
@@ -133,16 +109,12 @@ export const BIOMES: readonly Biome[] = [
   'deep_north',
 ];
 
-export function biomeStyle(biome: Biome, appearance: MapAppearance = 'modern'): BiomeStyle {
-  const style = BIOME_STYLES[biome];
-  if (appearance === 'modern') {
-    return style;
-  }
-  return { ...style, ...IMMERSIVE_BIOME_COLORS[biome] };
+export function biomeStyle(biome: Biome): BiomeStyle {
+  return BIOME_STYLES[biome];
 }
 
-export function biomeColor(biome: Biome, appearance: MapAppearance = 'modern'): number {
-  return Number.parseInt(biomeStyle(biome, appearance).baseHex.slice(1), 16);
+export function biomeColor(biome: Biome): number {
+  return Number.parseInt(biomeStyle(biome).baseHex.slice(1), 16);
 }
 
 function prepareStroke(context: CanvasRenderingContext2D, color: string, alpha: number, width: number) {

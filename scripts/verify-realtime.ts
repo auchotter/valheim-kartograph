@@ -209,19 +209,43 @@ try {
   await expectOperation(socketA, 'object.restore', 'marker', 9);
   await expectOperation(socketB, 'object.restore', 'marker', 9);
 
+  const label = {
+    id: id(13),
+    objectType: 'label',
+    x: 42,
+    y: -17,
+    text: 'North gate',
+    fontSize: 24,
+    rotationDegrees: 45,
+  };
+  const labelCreate = await mutate('/objects', actorA, 109, label, map.id);
+  assert.equal(labelCreate.statusCode, 201);
+  await expectOperation(socketA, 'object.create', 'label', 10);
+  await expectOperation(socketB, 'object.create', 'label', 10);
+
+  const labelUpdate = await request('PUT', `/api/maps/${map.id}/objects/${label.id}`, {
+    actorId: actorB,
+    clientOperationId: id(110),
+    baseObjectVersion: 1,
+    object: { ...label, text: 'South gate', rotationDegrees: 90 },
+  });
+  assert.equal(labelUpdate.statusCode, 200);
+  await expectOperation(socketA, 'object.update', 'label', 11);
+  await expectOperation(socketB, 'object.update', 'label', 11);
+
   const otherMap = await createMap('Other World');
   const socketOther = await openSocket(`/api/maps/${otherMap.id}/ws`);
   assert.equal((await socketOther.next()).type, 'map.ready');
-  await mutate('/objects', actorA, 109, {
-    id: id(13),
+  await mutate('/objects', actorA, 111, {
+    id: id(14),
     objectType: 'biome_stroke',
     mode: 'erase',
     biome: null,
     brushWidth: 20,
     points: [[0, 0]],
   }, map.id);
-  await expectOperation(socketA, 'object.create', 'biome_stroke', 10);
-  await expectOperation(socketB, 'object.create', 'biome_stroke', 10);
+  await expectOperation(socketA, 'object.create', 'biome_stroke', 12);
+  await expectOperation(socketB, 'object.create', 'biome_stroke', 12);
   await assertNoAcceptedEvent(socketOther);
 
   socketB.socket.terminate();
@@ -229,7 +253,7 @@ try {
   const reconnectReady = await reconnect.next();
   assert.equal(reconnectReady.type, 'map.ready');
   if (reconnectReady.type === 'map.ready') {
-    assert.equal(reconnectReady.revision, 10);
+    assert.equal(reconnectReady.revision, 12);
   }
 
   const deleteMapResponse = await request('DELETE', `/api/maps/${otherMap.id}`);

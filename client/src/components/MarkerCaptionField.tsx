@@ -1,91 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import type { Marker } from '../../../shared/domain';
-import {
-  markerIconDefinition,
-  normaliseDirectionDegrees,
-  normaliseMarkerCaption,
-} from '../lib/markerIcons';
-
-interface MarkerInspectorProps {
-  marker: Marker;
-  immersive: boolean;
-  disabled: boolean;
-  captionDraft: string | undefined;
-  onCaptionDraftChange: (markerId: string, draft: string | null) => void;
-  onUpdate: (marker: Marker) => Promise<boolean>;
-  onDirectionPreview: (direction: number) => void;
-  onDirectionCommit: () => void;
-  onDelete: (markerId: string) => void;
-}
-
-export function MarkerInspector({
-  marker,
-  immersive,
-  disabled,
-  captionDraft,
-  onCaptionDraftChange,
-  onUpdate,
-  onDirectionPreview,
-  onDirectionCommit,
-  onDelete,
-}: MarkerInspectorProps) {
-  const [direction, setDirection] = useState(marker.directionDegrees ?? 0);
-  const editable = !disabled && marker.objectVersion > 0;
-  const isVegvisir = marker.markerType === 'vegvisir';
-
-  useEffect(() => {
-    setDirection(marker.directionDegrees ?? 0);
-  }, [marker.directionDegrees, marker.id]);
-
-  const previewDirection = (nextDirection: number) => {
-    const normalised = normaliseDirectionDegrees(nextDirection);
-    setDirection(normalised);
-    onDirectionPreview(normalised);
-  };
-
-  return (
-    <section className="marker-inspector" aria-label="Selected marker">
-      <header>
-        <strong>{markerIconDefinition(marker.markerType).label}</strong>
-      </header>
-      <label>
-        <span>Caption</span>
-        <MarkerCaptionField
-          marker={marker}
-          disabled={!editable}
-          captionDraft={captionDraft}
-          onCaptionDraftChange={onCaptionDraftChange}
-          onUpdate={onUpdate}
-        />
-      </label>
-      {!immersive && isVegvisir && (
-        <label className="marker-inspector__direction">
-          <span>Direction {direction}°</span>
-          <input
-            type="range"
-            min="0"
-            max="359"
-            step="1"
-            value={direction}
-            disabled={!editable}
-            onChange={(event) => previewDirection(Number(event.target.value))}
-            onPointerUp={onDirectionCommit}
-            onKeyUp={(event) => {
-              if (event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End') {
-                onDirectionCommit();
-              }
-            }}
-          />
-        </label>
-      )}
-      {!immersive && (
-        <button type="button" className="marker-inspector__delete" disabled={!editable} onClick={() => onDelete(marker.id)}>
-          Delete marker
-        </button>
-      )}
-    </section>
-  );
-}
+import { normaliseMarkerCaption } from '../lib/markerIcons';
 
 export function MarkerCaptionField({
   marker,
@@ -93,7 +8,7 @@ export function MarkerCaptionField({
   captionDraft,
   onCaptionDraftChange,
   onUpdate,
-  className = 'marker-inspector__caption-input',
+  className = 'marker-caption-field__input',
 }: {
   marker: Marker;
   disabled: boolean;

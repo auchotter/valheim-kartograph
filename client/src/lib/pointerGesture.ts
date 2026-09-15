@@ -1,5 +1,8 @@
 import type { MapTool } from '../state/mapTool';
 
+/** Shared pointer movement threshold for distinguishing a click from a drag. */
+export const OBJECT_DRAG_THRESHOLD_PX = 4;
+
 export type InitialPointerGesture =
   | 'pan'
   | 'biome-draw'
@@ -40,6 +43,7 @@ export function initialPointerGesture(input: {
       return input.pathCreationArmed ? 'path-draw' : 'select';
     case 'marker':
       return input.markerPlacementArmed ? 'marker-place' : 'select';
+    case 'text':
     case 'select':
       return 'select';
     default:

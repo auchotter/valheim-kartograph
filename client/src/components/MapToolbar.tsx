@@ -1,14 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import type { Biome, Marker, PathGeometryType } from '../../../shared/domain';
+import type { Biome, Label, Marker, PathGeometryType } from '../../../shared/domain';
 import { BIOMES, biomeStyle } from '../lib/biomeStyles';
 import type { MapTool } from '../state/mapTool';
 import { ResponsiveOverflowBar, type ResponsiveOverflowItem } from './ResponsiveOverflowBar';
 import type { HudLayoutMode } from '../lib/hudLayout';
-import { MarkerCaptionField } from './MarkerInspector';
+import { MarkerCaptionField } from './MarkerCaptionField';
+import { MAX_LABEL_FONT_SIZE, MIN_LABEL_FONT_SIZE, normaliseLabelText } from '../lib/labelObject';
 
 interface MapToolbarProps {
   layoutMode: HudLayoutMode;
-  immersive: boolean;
   tool: MapTool;
   biome: Biome;
   brushWidth: number;
@@ -18,6 +18,12 @@ interface MapToolbarProps {
   hasSelectedMarker: boolean;
   selectedMarkerPending: boolean;
   selectedMarker: Marker | null;
+  hasSelectedLabel: boolean;
+  selectedLabelPending: boolean;
+  selectedLabel: Label | null;
+  labelDraft: string | undefined;
+  textCreationDraft: string;
+  textCreationSize: number;
   markerCaptionDraft: string | undefined;
   selectedVegvisir: boolean;
   vegvisirDirection: number;
@@ -29,13 +35,22 @@ interface MapToolbarProps {
   onPathGeometryTypeChange: (geometryType: PathGeometryType) => void;
   onDeleteSelectedPath: () => void;
   onDeleteSelectedMarker: () => void;
+  onDeleteSelectedLabel: () => void;
   onMarkerCaptionDraftChange: (markerId: string, draft: string | null) => void;
   onMarkerUpdate: (marker: Marker) => Promise<boolean>;
+  onTextCreationDraftChange: (draft: string) => void;
+  onTextCreationCommit: () => void;
+  onTextCreationCancel: () => void;
+  onLabelDraftChange: (labelId: string, draft: string | null) => void;
+  onLabelUpdate: (label: Label) => Promise<boolean>;
+  onLabelSizePreview: (fontSize: number) => void;
+  onLabelSizeCommit: () => void;
+  onLabelRotationPreview: (rotationDegrees: number) => void;
+  onLabelRotationCommit: () => void;
 }
 
 export function MapToolbar({
   layoutMode,
-  immersive,
   tool,
   biome,
   brushWidth,
@@ -45,6 +60,12 @@ export function MapToolbar({
   hasSelectedMarker,
   selectedMarkerPending,
   selectedMarker,
+  hasSelectedLabel,
+  selectedLabelPending,
+  selectedLabel,
+  labelDraft,
+  textCreationDraft,
+  textCreationSize,
   markerCaptionDraft,
   selectedVegvisir,
   vegvisirDirection,
@@ -56,16 +77,26 @@ export function MapToolbar({
   onPathGeometryTypeChange,
   onDeleteSelectedPath,
   onDeleteSelectedMarker,
+  onDeleteSelectedLabel,
   onMarkerCaptionDraftChange,
   onMarkerUpdate,
+  onTextCreationDraftChange,
+  onTextCreationCommit,
+  onTextCreationCancel,
+  onLabelDraftChange,
+  onLabelUpdate,
+  onLabelSizePreview,
+  onLabelSizeCommit,
+  onLabelRotationPreview,
+  onLabelRotationCommit,
 }: MapToolbarProps) {
-  const showsInlineBrushControls = !immersive && (tool === 'biome_brush' || tool === 'eraser');
-  const showsContextualBrushControls = immersive && (tool === 'biome_brush' || tool === 'eraser');
-  const showsInlinePathControls = !immersive && tool === 'path';
-  const showsContextualPathControls = immersive && tool === 'path';
-  const hasDeletableSelection = hasSelectedPath || hasSelectedMarker;
+  const showsContextualBrushControls = (tool === 'biome_brush' || tool === 'eraser');
+  const showsContextualPathControls = tool === 'path';
+  const hasDeletableSelection = hasSelectedPath || hasSelectedMarker || hasSelectedLabel;
   const showsSelectedMarkerControls = selectedMarker !== null;
-  const showsContextualPanel = immersive && (showsContextualBrushControls || showsContextualPathControls || hasDeletableSelection || showsSelectedMarkerControls);
+  const showsTextCreationControls = tool === 'text' && selectedLabel === null;
+  const showsSelectedLabelControls = selectedLabel !== null;
+  const showsContextualPanel = (showsContextualBrushControls || showsContextualPathControls || showsTextCreationControls || hasDeletableSelection || showsSelectedMarkerControls || showsSelectedLabelControls);
   const handleToolClick = (nextTool: MapTool) => {
     onToolChange(nextTool === tool && nextTool !== 'pan' ? 'pan' : nextTool);
   };
@@ -75,6 +106,7 @@ export function MapToolbar({
     toolItem('eraser', 'Eraser', 'E'),
     toolItem('path', 'Path', 'P'),
     toolItem('marker', 'Marker', 'M'),
+    toolItem('text', 'Text'),
     toolItem('select', 'Select', 'V'),
   ].map((item) => ({
     ...item,
@@ -94,32 +126,6 @@ export function MapToolbar({
     <>
     <section className="map-toolbar" aria-label="Map drawing tools">
       <ResponsiveOverflowBar ariaLabel="Active tool" className="map-toolbar__tools" items={toolItems} mode={layoutMode} group="tools" />
-
-      {showsInlinePathControls && (
-        <label className="map-toolbar__field">
-          <span>Mode</span>
-          <select
-            value={pathGeometryType}
-            aria-label="Path drawing mode"
-            onChange={(event) => {
-              onPathGeometryTypeChange(event.target.value as PathGeometryType);
-              event.currentTarget.blur();
-            }}
-          >
-            <option value="freehand">Freehand</option>
-            <option value="straight">Straight</option>
-            <option value="curve">Curve</option>
-          </select>
-        </label>
-      )}
-
-      {showsInlineBrushControls && <BiomeBrushControls biome={biome} brushWidth={brushWidth} disabled={tool === 'eraser'} onBiomeChange={onBiomeChange} onBrushWidthChange={onBrushWidthChange} />}
-
-      {!immersive && hasSelectedPath && (
-        <button type="button" className="map-toolbar__delete" disabled={selectedPathPending} onClick={onDeleteSelectedPath}>
-          Delete path
-        </button>
-      )}
     </section>
     {showsContextualPanel && (
       <section className="map-toolbar tool-context-panel" aria-label="Tool context controls">
@@ -135,6 +141,23 @@ export function MapToolbar({
         )}
         {showsContextualPathControls && (
           <PathModePicker pathGeometryType={pathGeometryType} onPathGeometryTypeChange={onPathGeometryTypeChange} />
+        )}
+        {(showsTextCreationControls || showsSelectedLabelControls) && (
+          <TextAnnotationControls
+            label={selectedLabel}
+            disabled={selectedLabelPending}
+            draft={selectedLabel === null ? textCreationDraft : labelDraft}
+            creationSize={textCreationSize}
+            onCreationDraftChange={onTextCreationDraftChange}
+            onCreationCommit={onTextCreationCommit}
+            onCreationCancel={onTextCreationCancel}
+            onLabelDraftChange={onLabelDraftChange}
+            onLabelUpdate={onLabelUpdate}
+            onSizePreview={onLabelSizePreview}
+            onSizeCommit={onLabelSizeCommit}
+            onRotationPreview={onLabelRotationPreview}
+            onRotationCommit={onLabelRotationCommit}
+          />
         )}
         {selectedVegvisir && (
           <VegvisirDirectionControl
@@ -159,8 +182,8 @@ export function MapToolbar({
             type="button"
             className="immersive-wood-button immersive-wood-button--danger tool-context-panel__delete"
             aria-label="Delete selected object"
-            disabled={hasSelectedPath ? selectedPathPending : selectedMarkerPending}
-            onClick={hasSelectedPath ? onDeleteSelectedPath : onDeleteSelectedMarker}
+            disabled={hasSelectedPath ? selectedPathPending : hasSelectedMarker ? selectedMarkerPending : selectedLabelPending}
+            onClick={hasSelectedPath ? onDeleteSelectedPath : hasSelectedMarker ? onDeleteSelectedMarker : onDeleteSelectedLabel}
           >
             DELETE
           </button>
@@ -216,28 +239,164 @@ function VegvisirDirectionControl({
   );
 }
 
-function BiomeBrushControls({
-  biome,
-  brushWidth,
+function TextAnnotationControls({
+  label,
   disabled,
-  onBiomeChange,
-  onBrushWidthChange,
+  draft,
+  creationSize,
+  onCreationDraftChange,
+  onCreationCommit,
+  onCreationCancel,
+  onLabelDraftChange,
+  onLabelUpdate,
+  onSizePreview,
+  onSizeCommit,
+  onRotationPreview,
+  onRotationCommit,
 }: {
-  biome: Biome;
-  brushWidth: number;
+  label: Label | null;
   disabled: boolean;
-  onBiomeChange: (biome: Biome) => void;
-  onBrushWidthChange: (width: number) => void;
+  draft: string | undefined;
+  creationSize: number;
+  onCreationDraftChange: (draft: string) => void;
+  onCreationCommit: () => void;
+  onCreationCancel: () => void;
+  onLabelDraftChange: (labelId: string, draft: string | null) => void;
+  onLabelUpdate: (label: Label) => Promise<boolean>;
+  onSizePreview: (fontSize: number) => void;
+  onSizeCommit: () => void;
+  onRotationPreview: (rotationDegrees: number) => void;
+  onRotationCommit: () => void;
 }) {
+  const controlsRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const text = draft ?? label?.text ?? '';
+  const [size, setSize] = useState(label?.fontSize ?? creationSize);
+  const [rotation, setRotation] = useState(label?.rotationDegrees ?? 0);
+  const committingRef = useRef(false);
+
+  useEffect(() => {
+    setSize(label?.fontSize ?? creationSize);
+    setRotation(label?.rotationDegrees ?? 0);
+  }, [creationSize, label?.fontSize, label?.id, label?.rotationDegrees]);
+
+  useEffect(() => {
+    if (label === null) {
+      inputRef.current?.focus();
+    }
+  }, [label]);
+
+  const commitText = async () => {
+    if (committingRef.current) return;
+    if (label === null) {
+      // Enter calls blur immediately afterwards; hold the one logical draft
+      // commit through that bubbling focus transition.
+      committingRef.current = true;
+      onCreationCommit();
+      queueMicrotask(() => {
+        committingRef.current = false;
+      });
+      return;
+    }
+    const nextText = normaliseLabelText(text);
+    if (nextText === null || nextText === label.text || disabled) {
+      if (nextText === null) onLabelDraftChange(label.id, null);
+      return;
+    }
+    committingRef.current = true;
+    const saved = await onLabelUpdate({ ...label, text: nextText });
+    committingRef.current = false;
+    if (saved) onLabelDraftChange(label.id, null);
+  };
+
   return (
-    <BrushControls
-      biome={biome}
-      brushWidth={brushWidth}
-      disabled={disabled}
-      showBiome
-      onBiomeChange={onBiomeChange}
-      onBrushWidthChange={onBrushWidthChange}
-    />
+    <div
+      ref={controlsRef}
+      className="text-annotation-controls"
+      aria-label="Text annotation controls"
+      onBlur={(event) => {
+        if (controlsRef.current?.contains(event.relatedTarget as Node)) return;
+        void commitText();
+      }}
+    >
+      <input
+        ref={inputRef}
+        className="immersive-recessed-field text-annotation-controls__input"
+        value={text}
+        disabled={disabled}
+        maxLength={1000}
+        aria-label="Map text"
+        onChange={(event) => {
+          if (label === null) onCreationDraftChange(event.target.value);
+          else onLabelDraftChange(label.id, event.target.value);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            void commitText();
+            event.currentTarget.blur();
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            // The ensuing input blur must not turn a cancelled draft into a
+            // click-away commit before React applies the cancellation state.
+            committingRef.current = true;
+            if (label === null) onCreationCancel();
+            else onLabelDraftChange(label.id, null);
+            queueMicrotask(() => {
+              committingRef.current = false;
+            });
+            event.currentTarget.blur();
+          }
+        }}
+      />
+      <div className="biome-brush-controls__size text-annotation-controls__size">
+        <input
+          className="biome-brush-controls__slider"
+          type="range"
+          min={MIN_LABEL_FONT_SIZE}
+          max={MAX_LABEL_FONT_SIZE}
+          step="1"
+          value={size}
+          disabled={disabled}
+          aria-label="Text size"
+          onChange={(event) => {
+            const nextSize = Number(event.target.value);
+            setSize(nextSize);
+            onSizePreview(nextSize);
+          }}
+          onPointerUp={onSizeCommit}
+          onPointerCancel={onSizeCommit}
+          onKeyUp={(event) => {
+            if (event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End') onSizeCommit();
+          }}
+        />
+      </div>
+      {label !== null && (
+        <div className="biome-brush-controls__size text-annotation-controls__rotation">
+          <input
+            className="biome-brush-controls__slider"
+            type="range"
+            min="0"
+            max="359"
+            step="1"
+            value={rotation}
+            disabled={disabled}
+            aria-label="Text rotation"
+            onChange={(event) => {
+              const nextRotation = Number(event.target.value);
+              setRotation(nextRotation);
+              onRotationPreview(nextRotation);
+            }}
+            onPointerUp={onRotationCommit}
+            onPointerCancel={onRotationCommit}
+            onKeyUp={(event) => {
+              if (event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End') onRotationCommit();
+            }}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -537,7 +696,7 @@ function ContextualPicker<T extends string>({
   );
 }
 
-function toolItem(tool: MapTool, label: string, shortcut: string) {
+function toolItem(tool: MapTool, label: string, shortcut?: string) {
   return { id: tool, tool, label, shortcut };
 }
 
@@ -550,11 +709,11 @@ function ToolButton({
 }: {
   active: boolean;
   label: string;
-  shortcut: string;
+  shortcut?: string;
   showShortcut: boolean;
   onClick: () => void;
 }) {
-  const shortcutDescription = `${label} — shortcut ${shortcut}`;
+  const shortcutDescription = shortcut === undefined ? label : `${label} — shortcut ${shortcut}`;
   return (
     <button
       type="button"
@@ -564,7 +723,7 @@ function ToolButton({
       title={shortcutDescription}
       onClick={onClick}
     >
-      {label}{showShortcut && <> <kbd>{shortcut}</kbd></>}
+      {label}{showShortcut && shortcut !== undefined && <> <kbd>{shortcut}</kbd></>}
     </button>
   );
 }

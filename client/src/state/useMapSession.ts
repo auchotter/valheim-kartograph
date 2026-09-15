@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import type { BiomeStroke, Id, MapObject, MapRecord, Marker, Path } from '../../../shared/domain';
+import type { BiomeStroke, Id, Label, MapObject, MapRecord, Marker, Path } from '../../../shared/domain';
 import { createMap, deleteMap, duplicateMap, listMaps, loadMapState, redoMap as requestRedo, renameMap, undoMap as requestUndo } from '../api/maps';
 import { ApiClientError } from '../api/http';
 import {
   createBiomeStroke,
+  createLabel,
   createMarker,
   createPath,
+  deleteLabel,
   deleteMarker,
   deletePath,
+  updateLabel,
   updateMarker,
   updatePath,
 } from '../api/objects';
@@ -15,6 +18,7 @@ import { actorId, rememberedMapId, rememberMapId } from '../lib/browserIdentity'
 import { createOptimisticBiomeStroke, type CompletedBrushGesture } from '../lib/biomeStroke';
 import { createOptimisticPath } from '../lib/pathObject';
 import { createOptimisticMarker, type CompletedMarkerGesture } from '../lib/markerObject';
+import { createOptimisticLabel, type CompletedLabelGesture } from '../lib/labelObject';
 import type { CompletedPathGesture } from '../lib/pathGeometry';
 import { DEFAULT_CAMERA, type Camera } from '../lib/camera';
 import {
@@ -61,6 +65,7 @@ export function useMapSession() {
   const pendingDrainWaitersRef = useRef(new Set<() => void>());
   const pathMutationGuardRef = useRef(new ScopedMutationGuard());
   const markerMutationGuardRef = useRef(new ScopedMutationGuard());
+  const labelMutationGuardRef = useRef(new ScopedMutationGuard());
   const mapActionInFlightRef = useRef(false);
   const historyInFlightRef = useRef(false);
   const currentSocketRef = useRef<WebSocket | null>(null);
@@ -75,10 +80,13 @@ export function useMapSession() {
   const [pendingStrokes, setPendingStrokes] = useState<BiomeStroke[]>([]);
   const [pendingPaths, setPendingPaths] = useState<Path[]>([]);
   const [pendingMarkers, setPendingMarkers] = useState<Marker[]>([]);
+  const [pendingLabels, setPendingLabels] = useState<Label[]>([]);
   const [pendingPathMutationCount, setPendingPathMutationCount] = useState(0);
   const [pendingMarkerMutationCount, setPendingMarkerMutationCount] = useState(0);
+  const [pendingLabelMutationCount, setPendingLabelMutationCount] = useState(0);
   const [pendingPathIds, setPendingPathIds] = useState<Set<Id>>(() => new Set());
   const [pendingMarkerIds, setPendingMarkerIds] = useState<Set<Id>>(() => new Set());
+  const [pendingLabelIds, setPendingLabelIds] = useState<Set<Id>>(() => new Set());
   const [loadState, setLoadState] = useState<MapLoadState>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -180,10 +188,13 @@ export function useMapSession() {
       setPendingStrokes([]);
       setPendingPaths([]);
       setPendingMarkers([]);
+      setPendingLabels([]);
       pathMutationGuardRef.current.clear();
       markerMutationGuardRef.current.clear();
+      labelMutationGuardRef.current.clear();
       setPendingPathIds(new Set());
       setPendingMarkerIds(new Set());
+      setPendingLabelIds(new Set());
       setMaps((current) => replaceMap(mapList ?? current, state.map));
       setLoadError(null);
       setMapError(null);
@@ -581,6 +592,27 @@ export function useMapSession() {
     }
   }, []);
 
+  const beginLabelMutation = useCallback((mapId: Id, labelId: Id): boolean => {
+    if (!labelMutationGuardRef.current.tryAcquire(mapId, labelId)) {
+      return false;
+    }
+    if (currentMapRef.current?.id === mapId) {
+      setPendingLabelIds((current) => new Set(current).add(labelId));
+    }
+    return true;
+  }, []);
+
+  const finishLabelMutation = useCallback((mapId: Id, labelId: Id): void => {
+    labelMutationGuardRef.current.release(mapId, labelId);
+    if (currentMapRef.current?.id === mapId) {
+      setPendingLabelIds((current) => {
+        const next = new Set(current);
+        next.delete(labelId);
+        return next;
+      });
+    }
+  }, []);
+
   const switchMap = useCallback(
     (mapId: Id): Promise<MapActionResult> =>
       runMapAction(async () => {
@@ -682,6 +714,7 @@ export function useMapSession() {
         setPendingStrokes([]);
         setPendingPaths([]);
         setPendingMarkers([]);
+        setPendingLabels([]);
         return activateMap(mapList[0].id, {
           maps: mapList,
           resetCamera: true,
@@ -1081,6 +1114,143 @@ export function useMapSession() {
     }
   }, [beginMarkerMutation, finishMarkerMutation]);
 
+  const saveLabel = useCallback(async (gesture: CompletedLabelGesture): Promise<Label | null> => {
+    const map = currentMapRef.current;
+    if (map === null || mapActionInFlightRef.current || !beginLabelMutation(map.id, gesture.id)) {
+      return null;
+    }
+
+    const mapId = map.id;
+    const optimistic = createOptimisticLabel({ ...gesture, mapId });
+    const clientOperationId = crypto.randomUUID();
+    trackPendingOperation(clientOperationId, mapId, gesture.id);
+    pendingSaveCountRef.current += 1;
+    setPendingLabelMutationCount((count) => count + 1);
+    setPendingLabels((current) => [...current, optimistic]);
+    setSaveError(null);
+
+    try {
+      const result = await createLabel(
+        mapId,
+        actorIdRef.current ?? (actorIdRef.current = actorId()),
+        clientOperationId,
+        { ...gesture, objectType: 'label' },
+      );
+      if (currentMapRef.current?.id !== mapId) return null;
+      setPendingLabels((current) => current.filter((label) => label.id !== gesture.id));
+      setObjects((current) => replaceObject(current, result.object));
+      updateCurrentMapRevision(mapId, result.mapRevision, result.object.orderKey, result.object.updatedAt, currentMapRef, setCurrentMap, localRevisionRef);
+      return result.object;
+    } catch (error) {
+      if (currentMapRef.current?.id === mapId) {
+        setPendingLabels((current) => current.filter((label) => label.id !== gesture.id));
+        setSaveError(toMessage(error, 'Text save failed.'));
+      }
+      return null;
+    } finally {
+      finishLabelMutation(mapId, gesture.id);
+      pendingOperationIdsRef.current.delete(clientOperationId);
+      finishPendingMutation();
+      setPendingLabelMutationCount((count) => Math.max(0, count - 1));
+    }
+  }, [beginLabelMutation, finishLabelMutation]);
+
+  const saveLabelUpdate = useCallback(async (draft: Label): Promise<boolean> => {
+    const map = currentMapRef.current;
+    const previous = objectsRef.current.find(
+      (object): object is Label => object.id === draft.id && object.objectType === 'label',
+    );
+    if (
+      map === null ||
+      mapActionInFlightRef.current ||
+      previous === undefined ||
+      previous.mapId !== map.id ||
+      previous.objectVersion < 1 ||
+      !beginLabelMutation(map.id, draft.id)
+    ) {
+      return false;
+    }
+
+    const mapId = map.id;
+    const clientOperationId = crypto.randomUUID();
+    trackPendingOperation(clientOperationId, mapId, draft.id);
+    pendingSaveCountRef.current += 1;
+    setPendingLabelMutationCount((count) => count + 1);
+    setObjects((current) => replaceObject(current, draft));
+    setSaveError(null);
+
+    try {
+      const result = await updateLabel(
+        mapId,
+        actorIdRef.current ?? (actorIdRef.current = actorId()),
+        clientOperationId,
+        previous.objectVersion,
+        draft,
+      );
+      if (currentMapRef.current?.id !== mapId) return true;
+      setObjects((current) => replaceObject(current, result.object));
+      updateCurrentMapRevision(mapId, result.mapRevision, result.object.orderKey, result.object.updatedAt, currentMapRef, setCurrentMap, localRevisionRef);
+      return true;
+    } catch (error) {
+      if (currentMapRef.current?.id !== mapId) return false;
+      if (error instanceof ApiClientError && error.status === 409) {
+        await refreshObjectsAfterConflict(mapId, currentMapRef, setCurrentMap, setObjects, setSaveError, localRevisionRef);
+      } else {
+        setObjects((current) => replaceObject(current, previous));
+        setSaveError(toMessage(error, 'Text update failed.'));
+      }
+      return false;
+    } finally {
+      finishLabelMutation(mapId, draft.id);
+      pendingOperationIdsRef.current.delete(clientOperationId);
+      finishPendingMutation();
+      setPendingLabelMutationCount((count) => Math.max(0, count - 1));
+    }
+  }, [beginLabelMutation, finishLabelMutation]);
+
+  const removeLabel = useCallback(async (labelId: Id): Promise<void> => {
+    const map = currentMapRef.current;
+    const previous = objectsRef.current.find(
+      (object): object is Label => object.id === labelId && object.objectType === 'label',
+    );
+    if (map === null || mapActionInFlightRef.current || previous === undefined || previous.mapId !== map.id || !beginLabelMutation(map.id, labelId)) {
+      return;
+    }
+
+    const mapId = map.id;
+    const clientOperationId = crypto.randomUUID();
+    trackPendingOperation(clientOperationId, mapId, labelId);
+    pendingSaveCountRef.current += 1;
+    setPendingLabelMutationCount((count) => count + 1);
+    setObjects((current) => current.filter((object) => object.id !== labelId));
+    setSaveError(null);
+
+    try {
+      const result = await deleteLabel(
+        mapId,
+        actorIdRef.current ?? (actorIdRef.current = actorId()),
+        clientOperationId,
+        labelId,
+        previous.objectVersion,
+      );
+      if (currentMapRef.current?.id !== mapId) return;
+      updateCurrentMapRevision(mapId, result.mapRevision, previous.orderKey, result.object.updatedAt, currentMapRef, setCurrentMap, localRevisionRef);
+    } catch (error) {
+      if (currentMapRef.current?.id !== mapId) return;
+      if (error instanceof ApiClientError && error.status === 409) {
+        await refreshObjectsAfterConflict(mapId, currentMapRef, setCurrentMap, setObjects, setSaveError, localRevisionRef);
+      } else {
+        setObjects((current) => replaceObject(current, previous));
+        setSaveError(toMessage(error, 'Text deletion failed.'));
+      }
+    } finally {
+      finishLabelMutation(mapId, labelId);
+      pendingOperationIdsRef.current.delete(clientOperationId);
+      finishPendingMutation();
+      setPendingLabelMutationCount((count) => Math.max(0, count - 1));
+    }
+  }, [beginLabelMutation, finishLabelMutation]);
+
   const undoCurrentChange = useCallback(async (): Promise<void> => {
     const map = currentMapRef.current;
     if (map === null || mapActionInFlightRef.current || historyInFlightRef.current) {
@@ -1206,6 +1376,14 @@ export function useMapSession() {
     [objects, pendingMarkers],
   );
 
+  const labels = useMemo(
+    () =>
+      [...objects.filter(isLabel), ...pendingLabels].sort(
+        (left, right) => left.layer - right.layer || left.orderKey - right.orderKey,
+      ),
+    [objects, pendingLabels],
+  );
+
   return {
     camera,
     setCamera,
@@ -1214,11 +1392,14 @@ export function useMapSession() {
     strokes,
     paths,
     markers,
+    labels,
     pendingStrokeCount: pendingStrokes.length,
     pendingPathMutationCount,
     pendingMarkerMutationCount,
+    pendingLabelMutationCount,
     pendingPathIds,
     pendingMarkerIds,
+    pendingLabelIds,
     loadState,
     loadError,
     saveError,
@@ -1233,6 +1414,7 @@ export function useMapSession() {
       pendingStrokes.length > 0 ||
       pendingPathMutationCount > 0 ||
       pendingMarkerMutationCount > 0 ||
+      pendingLabelMutationCount > 0 ||
       undoPending ||
       redoPending ||
       loadState === 'loading',
@@ -1249,6 +1431,9 @@ export function useMapSession() {
     saveMarker,
     saveMarkerUpdate,
     removeMarker,
+    saveLabel,
+    saveLabelUpdate,
+    removeLabel,
     undo: undoCurrentChange,
     redo: redoCurrentChange,
   };
@@ -1264,6 +1449,10 @@ function isPath(object: MapObject): object is Path {
 
 function isMarker(object: MapObject): object is Marker {
   return object.objectType === 'marker';
+}
+
+function isLabel(object: MapObject): object is Label {
+  return object.objectType === 'label';
 }
 
 function replaceObject(objects: readonly MapObject[], replacement: MapObject): MapObject[] {

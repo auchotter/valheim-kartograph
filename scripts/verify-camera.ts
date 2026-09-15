@@ -33,7 +33,10 @@ const afterZoom = screenToWorld(cursor, zoomed, viewport);
 
 assert.ok(Math.abs(afterZoom[0] - beforeZoom[0]) < epsilon);
 assert.ok(Math.abs(afterZoom[1] - beforeZoom[1]) < epsilon);
-assert.equal(zoomAtScreenPoint(camera, cursor, viewport, 0).zoom, MIN_ZOOM);
+assert.equal(MIN_ZOOM, 0.05);
+assert.equal(MAX_ZOOM, 8);
+assert.equal(zoomAtScreenPoint(camera, cursor, viewport, 0.049).zoom, 0.05);
+assert.equal(zoomAtScreenPoint(camera, cursor, viewport, 0.05).zoom, 0.05);
 assert.equal(zoomAtScreenPoint(camera, cursor, viewport, Infinity).zoom, MAX_ZOOM);
 assert.equal(DEFAULT_CAMERA.zoom, 1);
 
@@ -47,6 +50,7 @@ assert.equal(parseCameraViewRecord('{not-json', 'A'), null);
 assert.equal(parseCameraViewRecord(JSON.stringify({ version: 1, mapId: 'A', cameraX: NaN, cameraY: 2, zoom: 1 }), 'A'), null);
 assert.equal(parseCameraViewRecord(JSON.stringify({ version: 1, mapId: 'A', cameraX: 1, cameraY: 2, zoom: Infinity }), 'A'), null);
 assert.equal(parseCameraViewRecord(JSON.stringify({ version: 1, mapId: 'A', cameraX: 1, cameraY: 2, zoom: 99 }), 'A')?.zoom, MAX_ZOOM);
+assert.equal(parseCameraViewRecord(JSON.stringify({ version: 1, mapId: 'A', cameraX: 1, cameraY: 2, zoom: 0.05 }), 'A')?.zoom, 0.05);
 assert.equal(parseCameraViewRecord(JSON.stringify({ version: 1, mapId: 'A', cameraX: 1, cameraY: 2, zoom: 0.01 }), 'A')?.zoom, MIN_ZOOM);
 
 const storage = new Map<string, string>();

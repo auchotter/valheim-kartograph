@@ -90,6 +90,7 @@ const labelSchema = z.object({
   y: finiteNumber,
   text: nonEmptyString.max(1_000),
   fontSize: finiteNumber.positive().max(1_000).optional().default(16),
+  rotationDegrees: finiteNumber.gte(0).lt(360).optional().default(0),
 });
 
 export const objectInputSchema = z.discriminatedUnion('objectType', [

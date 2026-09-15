@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Biome, Marker, PathGeometryType, WorldPoint } from '../../../shared/domain';
+import { type Biome, type Label, type Marker, type PathGeometryType, type WorldPoint } from '../../../shared/domain';
 import { MapMenu } from './MapMenu';
-import { MarkerInspector } from './MarkerInspector';
 import { MarkerGallery } from './MarkerGallery';
 import { MapToolbar } from './MapToolbar';
 import { MapCanvas, type MapCanvasHandle } from './map/MapCanvas';
@@ -14,14 +13,15 @@ import { useHudLayout } from '../state/useHudLayout';
 import { clearMarkerInteraction } from '../lib/markerPlacement';
 import { nextPathOpacity, pathOpacityLabel, type PathOpacity } from '../lib/pathVisibility';
 import { readMapUiPreferences, writeMapUiPreferences, type DebugCoordinateMode } from '../lib/mapUiPreferences';
-import { readMapAppearance, writeMapAppearance, type MapAppearance } from '../lib/mapAppearance';
 import compassRoseUrl from '../assets/ui/compass-rose.png';
 import { isVegvisirMarker, normaliseDirectionDegrees } from '../lib/markerIcons';
 import { markerWithDirection } from '../lib/markerGeometry';
+import { createOptimisticLabel, DEFAULT_LABEL_FONT_SIZE, normaliseLabelRotation, normaliseLabelText } from '../lib/labelObject';
 
 const DEFAULT_BIOME: Biome = 'meadows';
 const DEFAULT_BRUSH_WIDTH = 120;
-type DebugInfoView = 'readout' | 'settings';
+type DebugInfoView = 'readout' | 'settings' | 'bug-report';
+const BUG_REPORT_MAILTO = `mailto:valheim-map@adg.one?subject=${encodeURIComponent('Valheim Map - Bug report')}`;
 
 export function MapWorkspace() {
   const layoutMode = useHudLayout();
@@ -33,8 +33,6 @@ export function MapWorkspace() {
   const [biome, setBiome] = useState<Biome>(DEFAULT_BIOME);
   const [brushWidth, setBrushWidth] = useState(DEFAULT_BRUSH_WIDTH);
   const [initialUiPreferences] = useState(() => readMapUiPreferences());
-  const [initialAppearance] = useState<MapAppearance>(() => readMapAppearance());
-  const [appearance] = useState<MapAppearance>(initialAppearance);
   const [gridVisible, setGridVisible] = useState(initialUiPreferences.gridEnabled);
   const [pathOpacity, setPathOpacity] = useState<PathOpacity>(initialUiPreferences.pathOpacity);
   const [protectEnabled, setProtectEnabled] = useState(initialUiPreferences.protectEnabled);
@@ -42,8 +40,14 @@ export function MapWorkspace() {
   const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
   const [armedMarkerType, setArmedMarkerType] = useState<string | null>(null);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
+  const [selectedLabelId, setSelectedLabelId] = useState<string | null>(null);
   const [markerPreview, setMarkerPreview] = useState<Marker | null>(null);
+  const [labelPreview, setLabelPreview] = useState<Label | null>(null);
   const [markerCaptionDrafts, setMarkerCaptionDrafts] = useState<Record<string, string>>({});
+  const [labelDrafts, setLabelDrafts] = useState<Record<string, string>>({});
+  const [textCreationDraft, setTextCreationDraft] = useState('');
+  const [textCreationPosition, setTextCreationPosition] = useState<WorldPoint | null>(null);
+  const [textCreationSize, setTextCreationSize] = useState(DEFAULT_LABEL_FONT_SIZE);
   const [markerGalleryOpen, setMarkerGalleryOpen] = useState(false);
   const [coordinateNavigatorOpen, setCoordinateNavigatorOpen] = useState(false);
   const [coordinateNavigatorAnchor, setCoordinateNavigatorAnchor] = useState<DOMRectReadOnly | null>(null);
@@ -52,6 +56,15 @@ export function MapWorkspace() {
   const [debugCoordinateMode, setDebugCoordinateMode] = useState<DebugCoordinateMode>(initialUiPreferences.debugCoordinateMode);
   const debugInfoRef = useRef<HTMLDivElement>(null);
   const vegvisirDirectionPreviewRef = useRef<number | null>(null);
+  const labelPreviewRef = useRef<Label | null>(null);
+  const textCreationCommitPromiseRef = useRef<Promise<Label | null> | null>(null);
+  const labelCommitPromisesRef = useRef(new Map<string, Promise<boolean>>());
+  const textCreationConfirmInFlightRef = useRef(false);
+
+  const setLabelPreviewState = useCallback((preview: Label | null) => {
+    labelPreviewRef.current = preview;
+    setLabelPreview(preview);
+  }, []);
 
   useEffect(() => {
     writeMapUiPreferences({
@@ -63,10 +76,6 @@ export function MapWorkspace() {
     });
   }, [debugCoordinateMode, debugInfoOpen, gridVisible, pathOpacity, protectEnabled]);
 
-  useEffect(() => {
-    writeMapAppearance(appearance);
-  }, [appearance]);
-
   const closeDebugInfo = useCallback(() => {
     setDebugInfoOpen(false);
     setDebugInfoView('readout');
@@ -75,41 +84,42 @@ export function MapWorkspace() {
   useEffect(() => {
     if (!debugInfoOpen) return undefined;
 
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (appearance !== 'immersive' && !debugInfoRef.current?.contains(event.target as Node)) {
-        closeDebugInfo();
-      }
-    };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
 
       event.preventDefault();
       event.stopPropagation();
-      if (debugInfoView === 'settings') {
+      if (debugInfoView === 'bug-report') {
+        setDebugInfoView('settings');
+      } else if (debugInfoView === 'settings') {
         setDebugInfoView('readout');
       } else {
         closeDebugInfo();
       }
     };
 
-    document.addEventListener('pointerdown', closeOnOutsidePointer);
     document.addEventListener('keydown', closeOnEscape);
     return () => {
-      document.removeEventListener('pointerdown', closeOnOutsidePointer);
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [appearance, closeDebugInfo, debugInfoOpen, debugInfoView]);
+  }, [closeDebugInfo, debugInfoOpen, debugInfoView]);
 
   useEffect(() => {
     const cleared = clearMarkerInteraction();
     setSelectedPathId(null);
     setSelectedMarkerId(cleared.selectedMarkerId);
+    setSelectedLabelId(null);
     setMarkerPreview(null);
+    setLabelPreviewState(null);
     setArmedMarkerType(cleared.armedMarkerType);
     setMarkerCaptionDrafts({});
+    setLabelDrafts({});
+    setTextCreationDraft('');
+    setTextCreationPosition(null);
+    setTextCreationSize(DEFAULT_LABEL_FONT_SIZE);
     setMarkerGalleryOpen(false);
     vegvisirDirectionPreviewRef.current = null;
-  }, [mapSession.currentMap?.id]);
+  }, [mapSession.currentMap?.id, setLabelPreviewState]);
 
   const enterNeutralPan = useCallback(() => {
     setTool('pan');
@@ -117,14 +127,29 @@ export function MapWorkspace() {
     const cleared = clearMarkerInteraction();
     setArmedMarkerType(cleared.armedMarkerType);
     setSelectedMarkerId(cleared.selectedMarkerId);
+    setSelectedLabelId(null);
     setSelectedPathId(null);
     setMarkerPreview(null);
-  }, []);
+    setLabelPreviewState(null);
+    setTextCreationDraft('');
+    setTextCreationPosition(null);
+    setLabelDrafts({});
+  }, [setLabelPreviewState]);
+
+  const cancelTextCreation = useCallback(() => {
+    setTextCreationDraft('');
+    setTextCreationPosition(null);
+    setTextCreationSize(DEFAULT_LABEL_FONT_SIZE);
+    setLabelPreviewState(null);
+  }, [setLabelPreviewState]);
 
   const changeTool = useCallback((nextTool: MapTool) => {
     if (nextTool === 'pan') {
       enterNeutralPan();
       return;
+    }
+    if (nextTool !== 'text') {
+      cancelTextCreation();
     }
     setTool(nextTool);
     setMarkerGalleryOpen(nextTool === 'marker');
@@ -136,7 +161,7 @@ export function MapWorkspace() {
       setSelectedMarkerId(cleared.selectedMarkerId);
       setMarkerPreview(null);
     }
-  }, [enterNeutralPan]);
+  }, [cancelTextCreation, enterNeutralPan]);
 
   const selectMarkerGalleryItem = useCallback((markerType: string) => {
     setTool('marker');
@@ -157,19 +182,35 @@ export function MapWorkspace() {
     if (pathId !== null) {
       setSelectedMarkerId(null);
       setMarkerPreview(null);
+      setSelectedLabelId(null);
+      setLabelPreviewState(null);
     }
-  }, []);
+  }, [setLabelPreviewState]);
 
   const selectMarker = useCallback((markerId: string | null) => {
     setSelectedMarkerId(markerId);
     vegvisirDirectionPreviewRef.current = null;
     if (markerId !== null) {
       setSelectedPathId(null);
+      setSelectedLabelId(null);
+      setLabelPreviewState(null);
     }
     if (markerId === null) {
       setMarkerPreview(null);
     }
-  }, []);
+  }, [setLabelPreviewState]);
+
+  const selectLabel = useCallback((labelId: string | null) => {
+    setSelectedLabelId(labelId);
+    if (labelId !== null) {
+      setSelectedMarkerId(null);
+      setMarkerPreview(null);
+      setSelectedPathId(null);
+    }
+    if (labelId === null) {
+      setLabelPreviewState(null);
+    }
+  }, [setLabelPreviewState]);
 
   const updateMarker = useCallback(
     async (marker: Marker): Promise<boolean> => {
@@ -207,6 +248,193 @@ export function MapWorkspace() {
       deleteMarker(selectedMarkerId);
     }
   }, [deleteMarker, selectedMarkerId]);
+
+  const selectedLabel = mapSession.labels.find((label) => label.id === selectedLabelId) ?? (
+    selectedLabelId !== null && labelPreviewRef.current?.id === selectedLabelId
+      ? labelPreviewRef.current
+      : null
+  );
+
+  const updateLabelDraft = useCallback((labelId: string, draft: string | null) => {
+    setLabelDrafts((current) => {
+      if (draft === null) {
+        const { [labelId]: _discarded, ...remaining } = current;
+        return remaining;
+      }
+      return current[labelId] === draft ? current : { ...current, [labelId]: draft };
+    });
+    const label = mapSession.labels.find((candidate) => candidate.id === labelId) ?? null;
+    if (label === null) return;
+    if (draft === null) {
+      setLabelPreviewState(null);
+      return;
+    }
+    setLabelPreviewState({ ...label, text: draft });
+  }, [mapSession.labels, setLabelPreviewState]);
+
+  const updateTextCreationDraft = useCallback((draft: string) => {
+    setTextCreationDraft(draft);
+    const text = normaliseLabelText(draft);
+    if (text === null || mapSession.currentMap === null) {
+      setTextCreationPosition(null);
+      setLabelPreviewState(null);
+      return;
+    }
+    const position = textCreationPosition ?? [mapSession.camera.cameraX, mapSession.camera.cameraY] as WorldPoint;
+    setTextCreationPosition(position);
+    setLabelPreviewState(createOptimisticLabel({
+      id: 'text-draft',
+      mapId: mapSession.currentMap.id,
+      x: position[0],
+      y: position[1],
+      text,
+      fontSize: textCreationSize,
+      rotationDegrees: 0,
+    }));
+  }, [mapSession.camera.cameraX, mapSession.camera.cameraY, mapSession.currentMap, setLabelPreviewState, textCreationPosition, textCreationSize]);
+
+  const commitTextCreation = useCallback(async (): Promise<Label | null> => {
+    if (textCreationCommitPromiseRef.current !== null) {
+      return textCreationCommitPromiseRef.current;
+    }
+    const commitPromise = (async (): Promise<Label | null> => {
+      const text = normaliseLabelText(textCreationDraft);
+      const map = mapSession.currentMap;
+      if (text === null || map === null) return null;
+      const position = textCreationPosition ?? [mapSession.camera.cameraX, mapSession.camera.cameraY] as WorldPoint;
+      const id = crypto.randomUUID();
+      const saved = await mapSession.saveLabel({ id, x: position[0], y: position[1], text, fontSize: textCreationSize, rotationDegrees: 0 });
+      if (saved === null) return null;
+      setTextCreationDraft('');
+      setTextCreationPosition(null);
+      // Keep the authoritative response as a short-lived interaction preview
+      // until the labels collection catches up. This makes the newly-created
+      // object immediately hit-testable/draggable after Enter.
+      setLabelPreviewState(saved);
+      setSelectedLabelId(saved.id);
+      return saved;
+    })();
+    textCreationCommitPromiseRef.current = commitPromise;
+    void commitPromise.then(
+      () => {
+        if (textCreationCommitPromiseRef.current === commitPromise) textCreationCommitPromiseRef.current = null;
+      },
+      () => {
+        if (textCreationCommitPromiseRef.current === commitPromise) textCreationCommitPromiseRef.current = null;
+      },
+    );
+    return commitPromise;
+  }, [mapSession, setLabelPreviewState, textCreationDraft, textCreationPosition, textCreationSize]);
+
+  const confirmTextCreationFromMap = useCallback(async (): Promise<void> => {
+    if (textCreationConfirmInFlightRef.current) return;
+    textCreationConfirmInFlightRef.current = true;
+    try {
+      if (normaliseLabelText(textCreationDraft) === null) {
+        enterNeutralPan();
+        return;
+      }
+      const saved = await commitTextCreation();
+      if (saved !== null) {
+        enterNeutralPan();
+      }
+    } finally {
+      textCreationConfirmInFlightRef.current = false;
+    }
+  }, [commitTextCreation, enterNeutralPan, textCreationDraft]);
+
+  const updateLabel = useCallback(async (label: Label): Promise<boolean> => {
+    const existing = labelCommitPromisesRef.current.get(label.id);
+    if (existing !== undefined) return existing;
+    const previousPreview = labelPreviewRef.current?.id === label.id ? labelPreviewRef.current : null;
+    const promise = (async () => {
+      setLabelPreviewState(null);
+      const saved = await mapSession.saveLabelUpdate(label);
+      if (!saved && previousPreview !== null) {
+        setLabelPreviewState(previousPreview);
+      }
+      return saved;
+    })();
+    labelCommitPromisesRef.current.set(label.id, promise);
+    void promise.then(
+      () => {
+        if (labelCommitPromisesRef.current.get(label.id) === promise) labelCommitPromisesRef.current.delete(label.id);
+      },
+      () => {
+        if (labelCommitPromisesRef.current.get(label.id) === promise) labelCommitPromisesRef.current.delete(label.id);
+      },
+    );
+    return promise;
+  }, [mapSession.saveLabelUpdate, setLabelPreviewState]);
+
+  const commitSelectedLabelAndExit = useCallback(async (): Promise<boolean> => {
+    if (selectedLabel === null) {
+      enterNeutralPan();
+      return true;
+    }
+    const preview = labelPreviewRef.current?.id === selectedLabel.id ? labelPreviewRef.current : selectedLabel;
+    const draftText = labelDrafts[selectedLabel.id];
+    const nextText = draftText === undefined ? preview.text : normaliseLabelText(draftText) ?? selectedLabel.text;
+    const draft = { ...preview, text: nextText };
+    const changed =
+      draft.text !== selectedLabel.text ||
+      draft.fontSize !== selectedLabel.fontSize ||
+      draft.rotationDegrees !== selectedLabel.rotationDegrees;
+    if (!changed) {
+      enterNeutralPan();
+      return true;
+    }
+    const saved = await updateLabel(draft);
+    if (!saved) return false;
+    setLabelDrafts((current) => {
+      const { [selectedLabel.id]: _discarded, ...remaining } = current;
+      return remaining;
+    });
+    setLabelPreviewState(null);
+    enterNeutralPan();
+    return true;
+  }, [enterNeutralPan, labelDrafts, selectedLabel, setLabelPreviewState, updateLabel]);
+
+  const activateObjectTool = useCallback((nextTool: MapTool) => {
+    setMarkerGalleryOpen(false);
+    setArmedMarkerType(null);
+    setTool(nextTool);
+  }, []);
+
+  const previewLabelSize = useCallback((fontSize: number) => {
+    if (selectedLabel === null) {
+      setTextCreationSize(fontSize);
+      if (textCreationDraft.length > 0) updateTextCreationDraft(textCreationDraft);
+      return;
+    }
+    setLabelPreviewState({ ...selectedLabel, fontSize });
+  }, [selectedLabel, setLabelPreviewState, textCreationDraft, updateTextCreationDraft]);
+
+  const commitLabelSize = useCallback(() => {
+    const preview = labelPreviewRef.current;
+    if (selectedLabel !== null && preview !== null && preview.id === selectedLabel.id && preview.fontSize !== selectedLabel.fontSize) {
+      void updateLabel(preview);
+    }
+  }, [selectedLabel, updateLabel]);
+
+  const previewLabelRotation = useCallback((rotationDegrees: number) => {
+    if (selectedLabel === null) return;
+    setLabelPreviewState({ ...selectedLabel, rotationDegrees: normaliseLabelRotation(rotationDegrees) });
+  }, [selectedLabel, setLabelPreviewState]);
+
+  const commitLabelRotation = useCallback(() => {
+    const preview = labelPreviewRef.current;
+    if (selectedLabel !== null && preview !== null && preview.id === selectedLabel.id && preview.rotationDegrees !== selectedLabel.rotationDegrees) {
+      void updateLabel(preview);
+    }
+  }, [selectedLabel, updateLabel]);
+
+  const deleteLabel = useCallback((labelId: string) => {
+    setSelectedLabelId(null);
+    setLabelPreviewState(null);
+    updateLabelDraft(labelId, null);
+    void mapSession.removeLabel(labelId);
+  }, [mapSession.removeLabel, setLabelPreviewState, updateLabelDraft]);
 
   const selectedMarker = mapSession.markers.find((marker) => marker.id === selectedMarkerId) ?? null;
   const previewVegvisirDirection = useCallback((directionDegrees: number) => {
@@ -248,7 +476,9 @@ export function MapWorkspace() {
   }, []);
 
   const closeOrBackDebugInfo = useCallback(() => {
-    if (debugInfoView === 'settings') {
+    if (debugInfoView === 'bug-report') {
+      setDebugInfoView('readout');
+    } else if (debugInfoView === 'settings') {
       setDebugInfoView('readout');
     } else {
       closeDebugInfo();
@@ -289,7 +519,6 @@ export function MapWorkspace() {
         <MapMenu
           maps={mapSession.maps}
           currentMapId={mapSession.currentMap?.id ?? null}
-          showSelectionTick={appearance === 'modern'}
           disabled={mapSession.mapActionsDisabled}
           error={mapSession.mapError}
           onSelectMap={mapSession.switchMap}
@@ -369,11 +598,12 @@ export function MapWorkspace() {
             if (next && tool === 'pan') {
               setSelectedPathId(null);
               setSelectedMarkerId(null);
+              setSelectedLabelId(null);
+              setLabelPreviewState(null);
             }
             closeOverflow();
           }}
         >
-          {appearance === 'modern' && <span className="utility-control__state-mark" aria-hidden="true">{protectEnabled ? '✓ ' : ''}</span>}
           Protect
         </button>
       ),
@@ -455,10 +685,9 @@ export function MapWorkspace() {
   }, [changeTool, requestRedo, requestUndo]);
 
   return (
-    <main className="map-workspace" data-ui-mode={appearance}>
+    <main className="map-workspace" data-ui-mode="immersive">
       <MapCanvas
         ref={canvasRef}
-        appearance={appearance}
         camera={mapSession.camera}
         tool={tool}
         biome={biome}
@@ -466,15 +695,20 @@ export function MapWorkspace() {
         strokes={mapSession.strokes}
         paths={mapSession.paths}
         markers={mapSession.markers}
+        labels={mapSession.labels}
         pendingPathIds={mapSession.pendingPathIds}
         pendingMarkerIds={mapSession.pendingMarkerIds}
+        pendingLabelIds={mapSession.pendingLabelIds}
         pathOpacity={pathOpacity}
         protectEnabled={protectEnabled}
         pathGeometryType={pathGeometryType}
         armedMarkerType={armedMarkerType}
         selectedPathId={selectedPathId}
         selectedMarkerId={selectedMarkerId}
+        selectedLabelId={selectedLabelId}
+        textCreationActive={tool === 'text' && selectedLabelId === null}
         markerPreview={markerPreview}
+        labelPreview={labelPreview}
         gridVisible={gridVisible}
         mapId={mapSession.currentMap?.id ?? null}
         interactionEnabled={mapSession.loadState === 'ready' && !mapSession.mapActionBusy}
@@ -489,20 +723,25 @@ export function MapWorkspace() {
         onMarkerUpdate={updateMarker}
         onMarkerDelete={deleteMarker}
         onMarkerSelectionChange={selectMarker}
+        onLabelUpdate={(label) => { void updateLabel(label); }}
+        onLabelDelete={deleteLabel}
+        onLabelSelectionChange={selectLabel}
+        onTextCreationMapConfirm={confirmTextCreationFromMap}
+        onTextCreationPointerDown={commitTextCreation}
+        onTextMapClickAway={commitSelectedLabelAndExit}
         onMarkerPlacementDisarm={disarmMarkerPlacement}
         onToolChange={changeTool}
+        onObjectToolChange={activateObjectTool}
       />
 
       {gridVisible && <div className="map-centre-reticle" aria-hidden="true" />}
 
-      {appearance === 'immersive' && (
-        <img
-          className="immersive-compass-rose"
-          src={compassRoseUrl}
-          alt=""
-          aria-hidden="true"
-        />
-      )}
+      <img
+        className="immersive-compass-rose"
+        src={compassRoseUrl}
+        alt=""
+        aria-hidden="true"
+      />
 
       <div className="map-top-hud" data-layout-mode={layoutMode}>
         <div className="map-top-hud__utility">
@@ -512,7 +751,6 @@ export function MapWorkspace() {
         <div ref={toolsHudRef} className="map-top-hud__tools">
           <MapToolbar
             layoutMode={layoutMode}
-            immersive={appearance === 'immersive'}
             tool={tool}
             biome={biome}
             brushWidth={brushWidth}
@@ -525,6 +763,12 @@ export function MapWorkspace() {
             markerCaptionDraft={selectedMarker === null ? undefined : markerCaptionDrafts[selectedMarker.id]}
             selectedVegvisir={selectedMarker !== null && isVegvisirMarker(selectedMarker.markerType)}
             vegvisirDirection={selectedMarker?.directionDegrees ?? 0}
+            hasSelectedLabel={selectedLabelId !== null}
+            selectedLabelPending={selectedLabelId !== null && mapSession.pendingLabelIds.has(selectedLabelId)}
+            selectedLabel={selectedLabel}
+            labelDraft={selectedLabel === null ? undefined : labelDrafts[selectedLabel.id]}
+            textCreationDraft={textCreationDraft}
+            textCreationSize={textCreationSize}
             onToolChange={changeTool}
             onVegvisirDirectionPreview={previewVegvisirDirection}
             onVegvisirDirectionCommit={commitVegvisirDirection}
@@ -533,8 +777,18 @@ export function MapWorkspace() {
             onPathGeometryTypeChange={setPathGeometryType}
             onDeleteSelectedPath={() => canvasRef.current?.deleteSelectedPath()}
             onDeleteSelectedMarker={deleteSelectedMarker}
+            onDeleteSelectedLabel={() => selectedLabelId !== null && deleteLabel(selectedLabelId)}
             onMarkerCaptionDraftChange={updateMarkerCaptionDraft}
             onMarkerUpdate={updateMarker}
+            onTextCreationDraftChange={updateTextCreationDraft}
+            onTextCreationCommit={commitTextCreation}
+            onTextCreationCancel={cancelTextCreation}
+            onLabelDraftChange={updateLabelDraft}
+            onLabelUpdate={updateLabel}
+            onLabelSizePreview={previewLabelSize}
+            onLabelSizeCommit={commitLabelSize}
+            onLabelRotationPreview={previewLabelRotation}
+            onLabelRotationCommit={commitLabelRotation}
           />
         </div>
 
@@ -557,25 +811,8 @@ export function MapWorkspace() {
         onClose={closeMarkerGallery}
       />
 
-      {selectedMarker !== null && appearance !== 'immersive' && (
-        <MarkerInspector
-          marker={selectedMarker}
-          immersive={false}
-          disabled={
-            selectedMarker.objectVersion < 1 ||
-            mapSession.pendingMarkerIds.has(selectedMarker.id)
-          }
-          captionDraft={markerCaptionDrafts[selectedMarker.id]}
-          onCaptionDraftChange={updateMarkerCaptionDraft}
-          onUpdate={updateMarker}
-          onDirectionPreview={previewVegvisirDirection}
-          onDirectionCommit={commitVegvisirDirection}
-          onDelete={deleteMarker}
-        />
-      )}
-
       <div className="debug-info" ref={debugInfoRef}>
-        {appearance === 'immersive' ? (!debugInfoOpen ? (
+        {!debugInfoOpen ? (
           <button
             type="button"
             className="debug-info__button immersive-wood-button"
@@ -588,7 +825,27 @@ export function MapWorkspace() {
           </button>
         ) : (
           <section id="debug-info-popup" className="debug-info__popup" aria-live="polite">
-            {debugInfoView === 'settings' ? (
+            {debugInfoView === 'bug-report' ? (
+              <section className="debug-info__bug-report" aria-label="Bug report">
+                <div className="debug-info__bug-report-actions">
+                  <button
+                    type="button"
+                    className="debug-info__action immersive-wood-button"
+                    aria-label="Back to debug information"
+                    onClick={closeOrBackDebugInfo}
+                  >
+                    X
+                  </button>
+                </div>
+                <a
+                  className="debug-info__report-button immersive-wood-button"
+                  href={BUG_REPORT_MAILTO}
+                  aria-label="Report bug"
+                >
+                  REPORT BUG
+                </a>
+              </section>
+            ) : debugInfoView === 'settings' ? (
               <section className="debug-info__settings" aria-label="Debug settings">
                 <div className="debug-info__settings-line">
                   <h2>Coordinates</h2>
@@ -636,7 +893,17 @@ export function MapWorkspace() {
                     <button
                       type="button"
                       className="debug-info__action immersive-wood-button"
-                      aria-label="Debug settings"
+                      aria-label="Report Bug"
+                      title="Report Bug"
+                      onClick={() => setDebugInfoView('bug-report')}
+                    >
+                      !
+                    </button>
+                    <button
+                      type="button"
+                      className="debug-info__action immersive-wood-button"
+                      aria-label="Coordinates Settings"
+                      title="Coordinates Settings"
                       onClick={() => setDebugInfoView('settings')}
                     >
                       ?
@@ -656,32 +923,6 @@ export function MapWorkspace() {
               </div>
             )}
           </section>
-        )) : (
-          <>
-            <button
-              type="button"
-              className="debug-info__button immersive-wood-button"
-              aria-label="Show debug information"
-              aria-controls="debug-info-popup"
-              aria-expanded={debugInfoOpen}
-              onClick={() => setDebugInfoOpen((current) => !current)}
-            >
-              <span className="debug-info__symbol" aria-hidden="true">i</span>
-            </button>
-            {debugInfoOpen && (
-              <output id="debug-info-popup" className="debug-info__popup" aria-live="polite" onClick={closeDebugInfo}>
-                <div>Zoom: {(mapSession.camera.zoom * 100).toFixed(0)}%</div>
-                <div>Cursor Valheim X: {formatCoordinate(cursorValheim?.x)}</div>
-                <div>Cursor Valheim Z: {formatCoordinate(cursorValheim?.z)}</div>
-                {mapSession.collaborationStatus !== 'connected' && (
-                  <div>Sync: {formatCollaborationStatus(mapSession.collaborationStatus)}</div>
-                )}
-                {mapSession.pendingStrokeCount + mapSession.pendingPathMutationCount + mapSession.pendingMarkerMutationCount > 0 && <div>Saving…</div>}
-                {mapSession.saveError !== null && <div className="debug-info__error">Save failed: {mapSession.saveError}</div>}
-                {mapSession.undoMessage !== null && <div>{mapSession.undoMessage}</div>}
-              </output>
-            )}
-          </>
         )}
       </div>
 
@@ -714,8 +955,4 @@ function isTypingTarget(target: EventTarget | null): boolean {
     target instanceof HTMLTextAreaElement ||
     (target instanceof HTMLElement && target.isContentEditable)
   );
-}
-
-function formatCollaborationStatus(status: string): string {
-  return status === 'reconnecting' ? 'Reconnecting…' : status[0].toUpperCase() + status.slice(1);
 }

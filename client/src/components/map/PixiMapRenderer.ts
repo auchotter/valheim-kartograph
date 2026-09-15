@@ -9,9 +9,8 @@ import {
   Texture,
   UniformGroup,
 } from 'pixi.js';
-import type { Biome, BiomeStroke, Marker, Path, PathGeometryType, WorldPoint } from '../../../../shared/domain';
-import { biomeTexture, setBiomeTextureAppearance } from '../../lib/biomeTextures';
-import type { MapAppearance } from '../../lib/mapAppearance';
+import type { Biome, BiomeStroke, Label, Marker, Path, PathGeometryType, WorldPoint } from '../../../../shared/domain';
+import { biomeTexture } from '../../lib/biomeTextures';
 import { mapVisualTheme } from '../../lib/mapVisualTheme';
 import { destroyParchmentTextures, parchmentTextures } from '../../lib/parchmentTextures';
 import { chooseGridSpacing } from '../../lib/grid';
@@ -31,6 +30,7 @@ import {
   markerRootWorldScale,
   markerVisualDiameterCss,
 } from '../../lib/markerGeometry';
+import { labelVisualSize } from '../../lib/labelGeometry';
 import {
   loadMarkerCaptionFont,
   MARKER_CAPTION_FONT_FALLBACK,
@@ -127,6 +127,10 @@ export class PixiMapRenderer {
   private readonly markerCaptionNodes = new Map<string, Container>();
   private readonly markerEditCaption = new Container();
   private readonly labels = new Container();
+  private readonly textLabels = new Container();
+  private readonly labelEdit = new Container();
+  private readonly labelSelection = new Container();
+  private readonly labelNodes = new Map<string, Container>();
   private readonly brushCursor = new Graphics();
   private readonly coastlineUniforms = new UniformGroup({
     uCoastlineThickness: { value: 1, type: 'f32' },
@@ -138,6 +142,7 @@ export class PixiMapRenderer {
   private strokes: readonly BiomeStroke[] = [];
   private pathObjects: readonly Path[] = [];
   private markerObjects: readonly Marker[] = [];
+  private labelObjects: readonly Label[] = [];
   private preview: TerrainPreview | null = null;
   private activePathPreview: PathPreview | null = null;
   private selectedPathId: string | null = null;
@@ -150,23 +155,22 @@ export class PixiMapRenderer {
   private markerPlacementPreview: MarkerPlacementPreview | null = null;
   private markerPlacementNode: Container | null = null;
   private markerPlacementVisual: Container | null = null;
+  private selectedLabelId: string | null = null;
+  private labelEditPreview: Label | null = null;
   private cursor: BrushCursor | null = null;
   private gridVisible = false;
-  private appearance: MapAppearance = 'modern';
   private initialized = false;
   private destroyed = false;
 
-  async initialize(host: HTMLElement, appearance: MapAppearance = 'modern'): Promise<void> {
+  async initialize(host: HTMLElement): Promise<void> {
     this.host = host;
-    this.appearance = appearance;
-    setBiomeTextureAppearance(appearance);
     const application = new Application();
     this.application = application;
 
     await application.init({
       width: Math.max(1, host.clientWidth),
       height: Math.max(1, host.clientHeight),
-      background: mapVisualTheme(appearance).parchmentColor,
+      background: mapVisualTheme().parchmentColor,
       antialias: true,
       autoDensity: true,
       resolution: window.devicePixelRatio || 1,
@@ -194,9 +198,7 @@ export class PixiMapRenderer {
     this.parchmentSurfaceContainer.alpha = 1;
     this.parchmentSurfaceContainer.visible = true;
     this.parchmentSurfaceContainer.renderable = true;
-    if (this.appearance === 'immersive') {
-      this.parchmentSurfaceContainer.addChild(...this.ensureParchmentSurfaceLayers());
-    }
+    this.parchmentSurfaceContainer.addChild(...this.ensureParchmentSurfaceLayers());
     this.terrainWorld.addChild(this.terrain);
     this.classificationWorld.addChild(this.terrainClassification);
     this.gridWorld.addChild(this.grid);
@@ -207,6 +209,9 @@ export class PixiMapRenderer {
       this.markerIconWorld,
       this.markerSelection,
       this.labels,
+      this.textLabels,
+      this.labelEdit,
+      this.labelSelection,
       this.origin,
       this.brushCursor,
     );
@@ -226,12 +231,14 @@ export class PixiMapRenderer {
     this.rebuildPreview();
     this.rebuildPaths();
     this.rebuildMarkers();
+    this.rebuildLabels();
     void loadMarkerCaptionFont().then((loaded) => {
       if (loaded && this.initialized && !this.destroyed) {
         // Text created before FontFace completion used fallback metrics. Rebuild
         // this retained presentation layer once so final caption bounds use
         // the bundled Norse face.
         this.rebuildMarkers();
+        this.rebuildLabels();
         this.requestStageRender();
       }
     });
@@ -264,6 +271,8 @@ export class PixiMapRenderer {
       this.rebuildPaths();
       this.updateMarkerVisualScales();
       this.rebuildMarkerSelection();
+      this.updateLabelVisualScales();
+      this.rebuildLabelSelection();
     }
     this.requestStageRender();
   }
@@ -278,25 +287,6 @@ export class PixiMapRenderer {
       this.scheduleTerrainRender();
       this.requestStageRender();
     }
-  }
-
-  setAppearance(appearance: MapAppearance): void {
-    if (appearance === this.appearance) {
-      return;
-    }
-
-    // Remove every Graphics object that can reference the old source textures
-    // before releasing the single active theme cache.
-    destroyChildren(this.terrainStrokes);
-    destroyChildren(this.terrainPreview);
-    setBiomeTextureAppearance(appearance);
-    this.appearance = appearance;
-    this.rebuildTerrain();
-    this.rebuildPreview();
-    this.configureAppearanceLayers();
-    this.updateVisualThemePresentation();
-    this.scheduleTerrainRender();
-    this.requestStageRender();
   }
 
   /** Request one follow-up replay after the hydrated terrain's first pass. */
@@ -331,6 +321,8 @@ export class PixiMapRenderer {
     this.pathShapes.alpha = this.pathOpacity;
     this.pathEdit.alpha = this.pathOpacity;
     this.pathPreview.alpha = this.pathOpacity;
+    this.textLabels.alpha = this.pathOpacity;
+    this.labelEdit.alpha = this.pathOpacity;
     if (this.initialized) {
       this.rebuildPathSelection();
     }
@@ -366,6 +358,30 @@ export class PixiMapRenderer {
     this.markerObjects = markers;
     if (this.initialized) {
       this.rebuildMarkers();
+    }
+    this.requestStageRender();
+  }
+
+  setLabels(labels: readonly Label[]): void {
+    this.labelObjects = labels;
+    if (this.initialized) {
+      this.rebuildLabels();
+    }
+    this.requestStageRender();
+  }
+
+  setSelectedLabel(labelId: string | null): void {
+    this.selectedLabelId = labelId;
+    if (this.initialized) {
+      this.rebuildLabelSelection();
+    }
+    this.requestStageRender();
+  }
+
+  setLabelEditPreview(label: Label | null): void {
+    this.labelEditPreview = label;
+    if (this.initialized) {
+      this.rebuildLabels();
     }
     this.requestStageRender();
   }
@@ -581,9 +597,7 @@ export class PixiMapRenderer {
     this.classificationDebugSurface.scale.set(1);
     // The filter samples physical classification texels. Express the desired
     // screen-consistent core in physical pixels without scaling the sprite.
-    this.coastlineUniforms.uniforms.uCoastlineThickness = resolution * (
-      this.appearance === 'immersive' ? 2.5 : 1.9
-    );
+    this.coastlineUniforms.uniforms.uCoastlineThickness = resolution * 2.5;
   }
 
   private applyCameraTransform(): void {
@@ -611,81 +625,47 @@ export class PixiMapRenderer {
     this.requestStageRender();
   }
 
-  private updateVisualThemePresentation(): void {
-    if (this.application !== null) {
-      this.redrawParchment(this.application.screen.width, this.application.screen.height);
-    }
-    const theme = mapVisualTheme(this.appearance);
-    this.coastlineUniforms.uniforms.uCoastlineCoreColor = [...theme.coastlineCore];
-    this.coastlineUniforms.uniforms.uCoastlineFeatherScale = this.appearance === 'immersive' ? 0.4 : 1;
-    this.rebuildGrid();
-    this.addOriginIndicator();
-  }
-
   private configureAppearanceLayers(): void {
     if (this.application === null) {
       return;
     }
 
     const stage = this.application.stage;
-    const theme = mapVisualTheme(this.appearance);
+    const theme = mapVisualTheme();
     this.coastlineUniforms.uniforms.uCoastlineCoreColor = [...theme.coastlineCore];
-    this.coastlineUniforms.uniforms.uCoastlineFeatherScale = this.appearance === 'immersive' ? 0.4 : 1;
-    if (this.appearance === 'immersive') {
-      const parchmentSurfaceLayers = this.ensureParchmentSurfaceLayers();
-      this.parchmentSurfaceContainer.alpha = 1;
-      this.parchmentSurfaceContainer.visible = true;
-      this.parchmentSurfaceContainer.renderable = true;
-      for (const layer of parchmentSurfaceLayers) {
-        if (layer.parent !== this.parchmentSurfaceContainer) {
-          this.parchmentSurfaceContainer.addChild(layer);
-        }
-        layer.visible = true;
+    this.coastlineUniforms.uniforms.uCoastlineFeatherScale = 0.4;
+    const parchmentSurfaceLayers = this.ensureParchmentSurfaceLayers();
+    this.parchmentSurfaceContainer.alpha = 1;
+    this.parchmentSurfaceContainer.visible = true;
+    this.parchmentSurfaceContainer.renderable = true;
+    for (const layer of parchmentSurfaceLayers) {
+      if (layer.parent !== this.parchmentSurfaceContainer) {
+        this.parchmentSurfaceContainer.addChild(layer);
       }
-
-      if (this.markerEditCaption.parent === this.markerIconWorld) {
-        this.markerIconWorld.removeChild(this.markerEditCaption);
-        this.overlayWorld.addChild(this.markerEditCaption);
-      }
-
-      if (this.markerIconWorld.parent !== stage) {
-        this.overlayWorld.removeChild(this.markerIconWorld);
-        const gridIndex = stage.getChildIndex(this.gridWorld);
-        stage.addChildAt(this.markerIconWorld, gridIndex);
-      }
-      if (this.parchmentSurfaceContainer.parent !== stage) {
-        const gridIndex = stage.getChildIndex(this.gridWorld);
-        // marker icons are inserted immediately before the grid above; insert
-        // paper between those icons and the grid so grid/paths/text stay clean.
-        stage.addChildAt(this.parchmentSurfaceContainer, gridIndex);
-      }
-      this.applyImmersiveLayerTransforms(
-        this.application.screen.width / 2 - (this.camera?.cameraX ?? 0) * (this.camera?.zoom ?? 1),
-        this.application.screen.height / 2 - (this.camera?.cameraY ?? 0) * (this.camera?.zoom ?? 1),
-        this.camera?.zoom ?? 1,
-      );
-      return;
+      layer.visible = true;
     }
 
-    if (this.parchmentSurfaceLayers !== null) {
-      for (const layer of this.parchmentSurfaceLayers) {
-        layer.visible = false;
-      }
+    if (this.markerEditCaption.parent === this.markerIconWorld) {
+      this.markerIconWorld.removeChild(this.markerEditCaption);
+      this.overlayWorld.addChild(this.markerEditCaption);
     }
-    if (this.markerEditCaption.parent !== this.markerIconWorld) {
-      this.overlayWorld.removeChild(this.markerEditCaption);
-      this.markerIconWorld.addChild(this.markerEditCaption);
+
+    if (this.markerIconWorld.parent !== stage) {
+      this.overlayWorld.removeChild(this.markerIconWorld);
+      const gridIndex = stage.getChildIndex(this.gridWorld);
+      stage.addChildAt(this.markerIconWorld, gridIndex);
     }
-    if (this.parchmentSurfaceContainer.parent === stage) {
-      stage.removeChild(this.parchmentSurfaceContainer);
+    if (this.parchmentSurfaceContainer.parent !== stage) {
+      const gridIndex = stage.getChildIndex(this.gridWorld);
+      // marker icons are inserted immediately before the grid above; insert
+      // paper between those icons and the grid so grid/paths/text stay clean.
+      stage.addChildAt(this.parchmentSurfaceContainer, gridIndex);
     }
-    if (this.markerIconWorld.parent === stage) {
-      stage.removeChild(this.markerIconWorld);
-      const selectionIndex = this.overlayWorld.getChildIndex(this.markerSelection);
-      this.overlayWorld.addChildAt(this.markerIconWorld, selectionIndex);
-    }
-    this.markerIconWorld.position.set(0, 0);
-    this.markerIconWorld.scale.set(1, 1);
+    this.applyImmersiveLayerTransforms(
+      this.application.screen.width / 2 - (this.camera?.cameraX ?? 0) * (this.camera?.zoom ?? 1),
+      this.application.screen.height / 2 - (this.camera?.cameraY ?? 0) * (this.camera?.zoom ?? 1),
+      this.camera?.zoom ?? 1,
+    );
   }
 
   private ensureParchmentSurfaceLayers(): [Graphics, Graphics, Graphics] {
@@ -702,7 +682,7 @@ export class PixiMapRenderer {
   }
 
   private applyImmersiveLayerTransforms(positionX: number, positionY: number, zoom: number): void {
-    if (this.appearance !== 'immersive' || this.application === null || this.parchmentSurfaceLayers === null) {
+    if (this.application === null || this.parchmentSurfaceLayers === null) {
       return;
     }
     this.markerIconWorld.scale.set(zoom);
@@ -741,7 +721,7 @@ export class PixiMapRenderer {
   }
 
   private redrawParchment(width: number, height: number): void {
-    const theme = mapVisualTheme(this.appearance);
+    const theme = mapVisualTheme();
     this.parchment.clear().rect(0, 0, width, height).fill({ color: theme.parchmentColor });
   }
 
@@ -978,6 +958,57 @@ export class PixiMapRenderer {
     this.markerSelection.addChild(root);
   }
 
+  /** Labels are independent Labels-layer objects; marker captions stay separate. */
+  private rebuildLabels(): void {
+    destroyChildren(this.textLabels);
+    destroyChildren(this.labelEdit);
+    this.labelNodes.clear();
+    const ordered = [...this.labelObjects]
+      .filter((label) => label.deletedAt === null)
+      .sort((left, right) => left.layer - right.layer || left.orderKey - right.orderKey);
+    for (const label of ordered) {
+      if (label.id === this.labelEditPreview?.id) {
+        continue;
+      }
+      const root = createLabelRenderable(label, this.camera?.zoom ?? 1);
+      this.textLabels.addChild(root);
+      this.labelNodes.set(label.id, root);
+    }
+    if (this.labelEditPreview !== null) {
+      this.labelEdit.addChild(createLabelRenderable(this.labelEditPreview, this.camera?.zoom ?? 1));
+    }
+    this.rebuildLabelSelection();
+  }
+
+  private rebuildLabelSelection(): void {
+    destroyChildren(this.labelSelection);
+    const draftSelected = this.selectedLabelId === null && this.labelEditPreview?.id === 'text-draft';
+    if (this.selectedLabelId === null && !draftSelected) {
+      return;
+    }
+    const selected =
+      this.labelEditPreview !== null && (this.labelEditPreview.id === this.selectedLabelId || draftSelected)
+        ? this.labelEditPreview
+        : this.labelObjects.find((label) => label.id === this.selectedLabelId && label.deletedAt === null);
+    if (selected === undefined || selected === null) {
+      return;
+    }
+    const zoom = this.camera?.zoom ?? 1;
+    const root = new Container();
+    root.position.set(selected.x, selected.y);
+    const visual = new Container();
+    visual.scale.set(markerRootWorldScale(zoom));
+    visual.rotation = (selected.rotationDegrees * Math.PI) / 180;
+    const { width, height } = labelVisualSize(selected);
+    visual.addChild(
+      new Graphics()
+        .rect(-width / 2 - 4, -height / 2 - 4, width + 8, height + 8)
+        .stroke({ color: 0x81745f, alpha: 0.72, width: 1.2 }),
+    );
+    root.addChild(visual);
+    this.labelSelection.addChild(root);
+  }
+
   private updateMarkerVisualScales(): void {
     const zoom = this.camera?.zoom ?? 1;
     for (const marker of this.markerObjects) {
@@ -1001,6 +1032,17 @@ export class PixiMapRenderer {
     }
     if (this.markerPlacementVisual !== null) {
       applyMarkerVisualTransform(this.markerPlacementVisual, zoom);
+    }
+  }
+
+  private updateLabelVisualScales(): void {
+    const zoom = this.camera?.zoom ?? 1;
+    for (const node of this.labelNodes.values()) {
+      node.scale.set(markerRootWorldScale(zoom));
+    }
+    const edit = this.labelEdit.children[0];
+    if (edit instanceof Container) {
+      edit.scale.set(markerRootWorldScale(zoom));
     }
   }
 
@@ -1100,7 +1142,7 @@ export class PixiMapRenderer {
     const lineWidth = 0.85 / zoom;
     const firstX = Math.ceil(minX / spacing) * spacing;
     const firstY = Math.ceil(minY / spacing) * spacing;
-    const gridTheme = mapVisualTheme(this.appearance).grid;
+    const gridTheme = mapVisualTheme().grid;
 
     for (let x = firstX; x <= maxX + spacing * 0.001; x += spacing) {
       drawGridLine(this.grid, x, minY, x, maxY, spacing, lineWidth, x === 0, gridTheme);
@@ -1111,7 +1153,7 @@ export class PixiMapRenderer {
   }
 
   private addOriginIndicator(): void {
-    const color = mapVisualTheme(this.appearance).grid.originIndicatorColor;
+    const color = mapVisualTheme().grid.originIndicatorColor;
     this.origin
       .clear()
       .moveTo(-12, 0)
@@ -1133,6 +1175,28 @@ interface MarkerRenderable {
   root: Container;
   visual: Container;
   caption: Container | null;
+}
+
+function createLabelRenderable(label: Label, zoom: number): Container {
+  const root = new Container();
+  root.position.set(label.x, label.y);
+  root.scale.set(markerRootWorldScale(zoom));
+  root.rotation = (label.rotationDegrees * Math.PI) / 180;
+  const text = new Text({
+    text: label.text,
+    style: {
+      fill: 0x3f3a33,
+      fontFamily: `${MARKER_CAPTION_FONT_FAMILY}, ${MARKER_CAPTION_FONT_FALLBACK}`,
+      fontSize: label.fontSize,
+      fontWeight: 'normal',
+      padding: 2,
+      trim: false,
+      wordWrap: false,
+    },
+  });
+  text.anchor.set(0.5);
+  root.addChild(text);
+  return root;
 }
 
 function createMarkerCaptionRenderable(marker: MarkerVisual, zoom: number): Container | null {

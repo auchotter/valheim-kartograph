@@ -1,18 +1,11 @@
 import { Texture } from 'pixi.js';
 import type { Biome } from '../../../shared/domain';
 import { biomeStyle } from './biomeStyles';
-import type { MapAppearance } from './mapAppearance';
 
-/**
- * Modern keeps the high-resolution source tuned for the supported 800% map
- * zoom. Immersive intentionally uses a smaller nearest-sampled source to give
- * its biome paint a controlled retro pixel character.
- */
-export const BIOME_PATTERN_SOURCE_RESOLUTION = 8;
+/** Fixed nearest-sampled source preserves the approved pixel texture. */
 export const IMMERSIVE_BIOME_PATTERN_SOURCE_RESOLUTION = 0.375;
 
 const textureCache = new Map<Biome, Texture>();
-let activeTextureAppearance: MapAppearance = 'modern';
 
 function seededRandom(seed: number): () => number {
   let state = seed >>> 0;
@@ -51,7 +44,7 @@ function drawImmersiveBaseVariation(
 
   // Small irregular opaque clusters sit underneath the existing motif. The
   // nearest-sampled 0.375× source turns these into deliberate 3px game-map
-  // colour steps without affecting Modern's 8× source.
+  // colour steps.
   for (let index = 0; index < 3200; index += 1) {
     const roll = random();
     const color = roll < 0.11 ? darker : roll < 0.2 ? lighter : roll < 0.27 ? warm : null;
@@ -68,28 +61,6 @@ function drawImmersiveBaseVariation(
   }
 }
 
-function activeSourceResolution(appearance: MapAppearance): number {
-  return appearance === 'immersive'
-    ? IMMERSIVE_BIOME_PATTERN_SOURCE_RESOLUTION
-    : BIOME_PATTERN_SOURCE_RESOLUTION;
-}
-
-function activeScaleMode(appearance: MapAppearance): 'linear' | 'nearest' {
-  return appearance === 'immersive' ? 'nearest' : 'linear';
-}
-
-/** Releases the one active theme's sources before the terrain is rebuilt. */
-export function setBiomeTextureAppearance(appearance: MapAppearance): void {
-  if (appearance === activeTextureAppearance) {
-    return;
-  }
-  for (const texture of textureCache.values()) {
-    texture.destroy(true);
-  }
-  textureCache.clear();
-  activeTextureAppearance = appearance;
-}
-
 /** Creates each opaque biome pattern once for the life of the frontend. */
 export function biomeTexture(biome: Biome): Texture {
   const cached = textureCache.get(biome);
@@ -97,9 +68,9 @@ export function biomeTexture(biome: Biome): Texture {
     return cached;
   }
 
-  const style = biomeStyle(biome, activeTextureAppearance);
-  const sourceResolution = activeSourceResolution(activeTextureAppearance);
-  const scaleMode = activeScaleMode(activeTextureAppearance);
+  const style = biomeStyle(biome);
+  const sourceResolution = IMMERSIVE_BIOME_PATTERN_SOURCE_RESOLUTION;
+  const scaleMode = 'nearest' as const;
   const canvas = document.createElement('canvas');
   canvas.width = style.tileSize * sourceResolution;
   canvas.height = style.tileSize * sourceResolution;
@@ -109,18 +80,16 @@ export function biomeTexture(biome: Biome): Texture {
   }
 
   // Existing pattern functions use logical world-tile coordinates. Scaling the
-  // canvas context preserves their geometry and spacing while the per-theme
+  // canvas context preserves their geometry and spacing while the fixed
   // resolution keeps the logical Pixi tile at 192.
   context.scale(sourceResolution, sourceResolution);
-  context.imageSmoothingEnabled = scaleMode === 'linear';
+  context.imageSmoothingEnabled = false;
 
   // The source tile is completely opaque. Texture detail is blended into its
   // pixels here, so reapplying this tile never compounds translucency.
   context.fillStyle = style.baseHex;
   context.fillRect(0, 0, style.tileSize, style.tileSize);
-  if (activeTextureAppearance === 'immersive') {
-    drawImmersiveBaseVariation(context, style.tileSize, style.baseHex, biome);
-  }
+  drawImmersiveBaseVariation(context, style.tileSize, style.baseHex, biome);
   style.drawPattern(context, style.tileSize, style.markHex, style.snowHex);
 
   const texture = Texture.from({

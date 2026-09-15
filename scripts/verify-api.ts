@@ -153,9 +153,36 @@ try {
   const label = await request(
     'POST',
     `/api/maps/${map.id}/objects`,
-    mutation({ id: id(9), objectType: 'label', x: -1, y: -2, text: 'North gate', fontSize: 18 }),
+    mutation({ id: id(9), objectType: 'label', x: -1, y: -2, text: 'North gate', fontSize: 18, rotationDegrees: 45 }),
   );
   assert.equal(label.statusCode, 201);
+  assert.equal(label.json.object.layer, 300);
+  assert.equal(label.json.object.rotationDegrees, 45);
+  const updatedLabel = await request(
+    'PUT',
+    `/api/maps/${map.id}/objects/${id(9)}`,
+    mutation({ id: id(9), objectType: 'label', x: 3, y: -2, text: 'North gate', fontSize: 24, rotationDegrees: 90 }, { baseObjectVersion: 1 }),
+  );
+  assert.equal(updatedLabel.statusCode, 200);
+  assert.deepEqual(
+    pickBounds(updatedLabel.json.object),
+    { minX: 3, minY: -2, maxX: 3, maxY: -2 },
+  );
+  assert.equal(updatedLabel.json.object.rotationDegrees, 90);
+  const deletedLabel = await request(
+    'DELETE',
+    `/api/maps/${map.id}/objects/${id(9)}`,
+    mutation(null, { baseObjectVersion: 2 }),
+  );
+  assert.equal(deletedLabel.statusCode, 200);
+  assert.notEqual(deletedLabel.json.object.deletedAt, null);
+  const restoredLabel = await request(
+    'POST',
+    `/api/maps/${map.id}/objects/${id(9)}/restore`,
+    mutation(null, { baseObjectVersion: 3 }),
+  );
+  assert.equal(restoredLabel.statusCode, 200);
+  assert.equal(restoredLabel.json.object.deletedAt, null);
 
   const deletedMarker = await request(
     'DELETE',
@@ -195,6 +222,13 @@ try {
   assert.equal(duplicate.statusCode, 201);
   const duplicateState = await request('GET', `/api/maps/${duplicate.json.map.id}`);
   assert.equal(duplicateState.json.objects.length, loadedState.json.objects.length);
+  assert.equal(
+    duplicateState.json.objects.some(
+      (object: { objectType: string; text?: string; rotationDegrees?: number }) =>
+        object.objectType === 'label' && object.text === 'North gate' && object.rotationDegrees === 90,
+    ),
+    true,
+  );
   assert.equal(
     duplicateState.json.objects.filter(
       (object: { objectType: string; markerType?: string }) => object.objectType === 'marker' && object.markerType === 'spawn',

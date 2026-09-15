@@ -543,6 +543,7 @@ function mergeSemanticObject(base: ObjectBase, input: ObjectInput): MapObject {
     y: input.y,
     text: input.text,
     fontSize: input.fontSize,
+    rotationDegrees: input.rotationDegrees,
   };
 }
 
@@ -601,7 +602,14 @@ function semanticObject(object: MapObject): unknown {
       directionDegrees: object.directionDegrees,
     };
   }
-  return { ...lifecycle, x: object.x, y: object.y, text: object.text, fontSize: object.fontSize };
+  return {
+    ...lifecycle,
+    x: object.x,
+    y: object.y,
+    text: object.text,
+    fontSize: object.fontSize,
+    rotationDegrees: object.rotationDegrees,
+  };
 }
 
 function inverseObject(

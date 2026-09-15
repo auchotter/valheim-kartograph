@@ -12,7 +12,6 @@ type MenuForm =
 interface MapMenuProps {
   maps: readonly MapRecord[];
   currentMapId: Id | null;
-  showSelectionTick: boolean;
   disabled: boolean;
   error: string | null;
   onSelectMap: (mapId: Id) => Promise<MapActionResult>;
@@ -25,7 +24,6 @@ interface MapMenuProps {
 export function MapMenu({
   maps,
   currentMapId,
-  showSelectionTick,
   disabled,
   error,
   onSelectMap,
@@ -165,11 +163,6 @@ export function MapMenu({
                         aria-current={selected ? 'true' : undefined}
                         onClick={() => void selectMap(map.id)}
                       >
-                        {showSelectionTick && (
-                          <span className="map-menu__selection" aria-hidden="true">
-                            {selected ? '✓' : ''}
-                          </span>
-                        )}
                         <span>{map.name}</span>
                       </button>
                       <button

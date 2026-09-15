@@ -77,7 +77,8 @@ assert.equal(markerIconDefinition('unknown-legacy-marker').type, 'pin', 'unknown
 
 assert.equal(markerVisualDiameterCss(0.1), MARKER_BASE_SIZE_CSS);
 const zoomScaleCases: readonly [number, number][] = [
-  [0.05, 1], [0.1, 1], [0.2, 1.25], [0.3, 1.5], [0.4, 1.75], [0.5, 2],
+  [0.01, 0.85], [0.049, 0.85], [0.05, 0.85], [0.06, 0.88], [0.07, 0.91], [0.08, 0.94], [0.09, 0.97],
+  [0.1, 1], [0.2, 1.25], [0.3, 1.5], [0.4, 1.75], [0.5, 2],
   [0.6, 2.2], [0.75, 2.5], [0.9, 2.8], [1, 3], [2, 3], [8, 3],
 ];
 for (const [zoom, expectedScale] of zoomScaleCases) {
@@ -135,7 +136,7 @@ const rendererSource = source('../client/src/components/map/PixiMapRenderer.ts')
 const geometrySource = source('../client/src/lib/markerGeometry.ts');
 const toolbarSource = source('../client/src/components/MapToolbar.tsx');
 const gallerySource = source('../client/src/components/MarkerGallery.tsx');
-const inspectorSource = source('../client/src/components/MarkerInspector.tsx');
+const inspectorSource = source('../client/src/components/MarkerCaptionField.tsx');
 const fontSource = source('../client/src/lib/markerCaptionFont.ts');
 const stylesSource = source('../client/src/styles.css');
 
@@ -187,7 +188,7 @@ assert.match(toolbarSource, /selectedVegvisir/);
 assert.match(toolbarSource, /tool-context-panel__delete/);
 assert.match(toolbarSource, /MarkerCaptionField/);
 assert.match(toolbarSource, /selectedMarker !== null/);
-assert.match(workspaceSource, /appearance !== 'immersive'/);
+assert.doesNotMatch(workspaceSource, /MarkerInspector|appearance !==/);
 assert.match(inspectorSource, /export function MarkerCaptionField/);
 assert.match(stylesSource, /\.marker-gallery__grid::-webkit-scrollbar/);
 assert.match(stylesSource, /\.map-workspace\[data-ui-mode='immersive'\] \.marker-gallery__item \{[\s\S]*padding: calc\(var\(--immersive-px\) \* 3\.5\)/);
@@ -200,7 +201,7 @@ assert.doesNotMatch(rendererSource, /markerCaptionFontSizeCss\(marker\.sizeScale
 assert.match(geometrySource, /export function markerCaptionScale\(zoom: number\): number \{[\s\S]*return markerVisualScale\(zoom\)/);
 assert.match(geometrySource, /return MARKER_CAPTION_BASE_FONT_SIZE_CSS \* markerCaptionScale\(zoom\)/);
 assert.doesNotMatch(geometrySource, /MARKER_CAPTION_SCALE_FACTOR|MARKER_CAPTION_MIN_SCALE|MARKER_CAPTION_MAX_SCALE|clampMarkerSizeScale/);
-for (const [zoom, visible] of [[0.1, false], [0.15, false], [0.199, false], [0.2, true], [0.25, true], [0.5, true], [1, true]] as const) {
+for (const [zoom, visible] of [[0.05, false], [0.1, false], [0.15, false], [0.199, false], [0.2, true], [0.25, true], [0.5, true], [1, true]] as const) {
   assert.equal(markerCaptionVisible(zoom), visible, `caption visibility at ${zoom}`);
 }
 assert.match(rendererSource, /wordWrap: false/);
@@ -208,7 +209,7 @@ assert.match(rendererSource, /trim: false/);
 assert.match(fontSource, /document\.fonts\s*\.load/);
 assert.match(stylesSource, /font-family: ValheimNorse/);
 assert.match(stylesSource, /NorseBold\.otf/);
-assert.match(inspectorSource, /marker-inspector__caption-input/);
+assert.match(inspectorSource, /marker-caption-field__input/);
 assert.match(inspectorSource, /captionCommitInFlightRef/);
 assert.match(inspectorSource, /event\.key === 'Enter'/);
 assert.match(inspectorSource, /event\.key === 'Escape'/);

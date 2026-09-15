@@ -14,7 +14,8 @@ export const MARKER_CAPTION_BASE_FONT_SIZE_CSS = 12;
  */
 export function markerVisualScale(zoom: number): number {
   const safeZoom = Number.isFinite(zoom) ? zoom : 0.1;
-  if (safeZoom <= 0.1) return 1;
+  if (safeZoom <= 0.05) return 0.85;
+  if (safeZoom <= 0.1) return 0.85 + ((safeZoom - 0.05) / 0.05) * 0.15;
   if (safeZoom <= 0.5) return 1 + (safeZoom - 0.1) / 0.4;
   if (safeZoom < 1) return 2 + (safeZoom - 0.5) / 0.5;
   return 3;

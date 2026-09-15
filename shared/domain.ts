@@ -109,6 +109,7 @@ export interface Label extends MapObjectBase {
   y: number;
   text: string;
   fontSize: number;
+  rotationDegrees: number;
 }
 
 export type MapObject = BiomeStroke | Path | Marker | Label;

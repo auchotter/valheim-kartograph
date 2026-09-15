@@ -1,37 +1,19 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import {
-  DEFAULT_MAP_APPEARANCE,
-  MAP_APPEARANCE_STORAGE_KEY,
-  parseMapAppearance,
-  readMapAppearanceFromStorage,
-  writeMapAppearanceToStorage,
-} from '../client/src/lib/mapAppearance.ts';
 import { BIOME_STYLES } from '../client/src/lib/biomeStyles.ts';
-import { MAP_VISUAL_THEMES } from '../client/src/lib/mapVisualTheme.ts';
+import { mapVisualTheme } from '../client/src/lib/mapVisualTheme.ts';
 
-assert.equal(parseMapAppearance(null), DEFAULT_MAP_APPEARANCE);
-assert.equal(parseMapAppearance('{bad-json'), 'modern');
-assert.equal(parseMapAppearance(JSON.stringify({ version: 2, mode: 'immersive' })), 'modern');
-assert.equal(parseMapAppearance(JSON.stringify({ version: 1, mode: 'unknown' })), 'modern');
-assert.equal(parseMapAppearance(JSON.stringify({ version: 1, mode: 'modern' })), 'modern');
-assert.equal(parseMapAppearance(JSON.stringify({ version: 1, mode: 'immersive' })), 'immersive');
-
-const storage = new Map<string, string>();
-const adapter = {
-  getItem: (key: string) => storage.get(key) ?? null,
-  setItem: (key: string, value: string) => storage.set(key, value),
-};
-writeMapAppearanceToStorage(adapter, 'immersive');
-assert.deepEqual(JSON.parse(storage.get(MAP_APPEARANCE_STORAGE_KEY) ?? '{}'), { version: 1, mode: 'immersive' });
-assert.equal(readMapAppearanceFromStorage(adapter), 'immersive');
-assert.equal(readMapAppearanceFromStorage({ getItem: () => { throw new Error('unavailable'); }, setItem: adapter.setItem }), 'modern');
-assert.doesNotThrow(() => writeMapAppearanceToStorage({ getItem: () => null, setItem: () => { throw new Error('unavailable'); } }, 'modern'));
-assert.equal(MAP_VISUAL_THEMES.modern.parchmentColor, 0xe8e1d1);
-assert.deepEqual(MAP_VISUAL_THEMES.modern.coastlineCore, [0.19, 0.177, 0.153, 0.78]);
-assert.deepEqual(MAP_VISUAL_THEMES.immersive.coastlineCore, [0.251, 0.173, 0.129, 0.84]);
-assert.equal(BIOME_STYLES.meadows.baseHex, '#91A96B');
-assert.equal(BIOME_STYLES.ocean.markHex, '#6F929E');
+// The production palette is the former Immersive palette, now unconditional.
+assert.deepEqual(mapVisualTheme(), {
+  parchmentColor: 0xd8bf87,
+  coastlineCore: [0.251, 0.173, 0.129, 0.84],
+  grid: {
+    normalColor: 0x806341, majorColor: 0x69492f, originColor: 0x8e4632,
+    normalAlpha: 0.18, majorAlpha: 0.28, originAlpha: 0.38, originIndicatorColor: 0x8e4632,
+  },
+});
+assert.equal(BIOME_STYLES.meadows.baseHex, '#899A52');
+assert.equal(BIOME_STYLES.ocean.markHex, '#496E72');
 
 const workspaceSource = readFileSync(new URL('../client/src/components/MapWorkspace.tsx', import.meta.url), 'utf8');
 const mapMenuSource = readFileSync(new URL('../client/src/components/MapMenu.tsx', import.meta.url), 'utf8');
@@ -39,7 +21,6 @@ const mapToolbarSource = readFileSync(new URL('../client/src/components/MapToolb
 const coordinateSource = readFileSync(new URL('../client/src/components/CoordinateNavigator.tsx', import.meta.url), 'utf8');
 const responsiveOverflowSource = readFileSync(new URL('../client/src/components/ResponsiveOverflowBar.tsx', import.meta.url), 'utf8');
 const hudLayoutSource = readFileSync(new URL('../client/src/lib/hudLayout.ts', import.meta.url), 'utf8');
-const appearanceSource = readFileSync(new URL('../client/src/lib/mapAppearance.ts', import.meta.url), 'utf8');
 const rendererSource = readFileSync(new URL('../client/src/components/map/PixiMapRenderer.ts', import.meta.url), 'utf8');
 const canvasSource = readFileSync(new URL('../client/src/components/map/MapCanvas.tsx', import.meta.url), 'utf8');
 const stylesSource = readFileSync(new URL('../client/src/styles.css', import.meta.url), 'utf8');
@@ -47,20 +28,21 @@ const biomeSource = readFileSync(new URL('../client/src/lib/biomeTextures.ts', i
 const parchmentSource = readFileSync(new URL('../client/src/lib/parchmentTextures.ts', import.meta.url), 'utf8');
 
 assert.equal(existsSync(new URL('../client/src/components/AppearanceSelector.tsx', import.meta.url)), false);
-assert.match(appearanceSource, /window\.localStorage/);
-assert.doesNotMatch(appearanceSource, /sessionStorage/);
-assert.match(workspaceSource, /data-ui-mode=\{appearance\}/);
+assert.match(workspaceSource, /data-ui-mode="immersive"/);
+assert.equal(existsSync(new URL('../client/src/lib/mapAppearance.ts', import.meta.url)), false);
+assert.equal(existsSync(new URL('../client/src/components/MarkerInspector.tsx', import.meta.url)), false);
+// No appearance storage reader means stale saved choices cannot activate a
+// different UI. Other preferences retain their independent storage mechanism.
+for (const source of [workspaceSource, mapToolbarSource, canvasSource, rendererSource, biomeSource]) {
+  assert.doesNotMatch(source, /MapAppearance|setAppearance|readMapAppearance|writeMapAppearance|valheim-map:appearance:v1|['"]modern['"]/);
+}
+assert.doesNotMatch(mapToolbarSource, /showsInlineBrushControls|showsInlinePathControls|immersive: boolean/);
+assert.doesNotMatch(stylesSource, /marker-inspector|appearance-selector|map-toolbar__(?:field|size|delete)/);
 assert.doesNotMatch(workspaceSource, /AppearanceSelector|map-top-hud__right|north-indicator/);
-assert.match(workspaceSource, /utility-control__state-mark/);
-assert.match(workspaceSource, /appearance === 'modern' && <span className="utility-control__state-mark"/);
 assert.match(workspaceSource, /aria-pressed=\{protectEnabled\}/);
-assert.match(mapMenuSource, /map-menu__selection/);
-assert.match(mapMenuSource, /showSelectionTick &&/);
-assert.match(mapMenuSource, /selected \? '✓' : ''/);
 assert.match(mapMenuSource, /aria-current=\{selected \? 'true' : undefined\}/);
 assert.match(mapMenuSource, /map-menu__map-button/);
 assert.match(mapMenuSource, />\s*NEW MAP\s*</);
-assert.match(workspaceSource, /showSelectionTick=\{appearance === 'modern'\}/);
 assert.ok(workspaceSource.indexOf("id: 'map-library'") < workspaceSource.indexOf("id: 'reset-view'"));
 assert.match(mapMenuSource, /className="map-menu__toggle utility-control"/);
 assert.match(mapToolbarSource, /toolItem\('pan', 'Pan', 'H'\)/);
@@ -68,38 +50,46 @@ assert.match(mapToolbarSource, /toolItem\('biome_brush', 'Biome Brush', 'B'\)/);
 assert.match(mapToolbarSource, /toolItem\('eraser', 'Eraser', 'E'\)/);
 assert.match(mapToolbarSource, /toolItem\('path', 'Path', 'P'\)/);
 assert.match(mapToolbarSource, /toolItem\('marker', 'Marker', 'M'\)/);
+assert.match(mapToolbarSource, /toolItem\('marker', 'Marker', 'M'\),[\s\S]*toolItem\('text', 'Text'\),[\s\S]*toolItem\('select', 'Select', 'V'\)/);
 assert.match(mapToolbarSource, /toolItem\('select', 'Select', 'V'\)/);
 assert.match(mapToolbarSource, /const handleToolClick = \(nextTool: MapTool\) => \{[\s\S]*onToolChange\(nextTool === tool && nextTool !== 'pan' \? 'pan' : nextTool\)/);
 assert.match(mapToolbarSource, /handleToolClick\(item\.tool\); closeOverflow\(\)/);
-assert.match(mapToolbarSource, /!immersive && hasSelectedPath/);
-assert.match(mapToolbarSource, /const hasDeletableSelection = hasSelectedPath \|\| hasSelectedMarker/);
-assert.match(mapToolbarSource, /const showsContextualPanel = immersive && \(showsContextualBrushControls \|\| showsContextualPathControls \|\| hasDeletableSelection \|\| showsSelectedMarkerControls\)/);
+assert.match(mapToolbarSource, /const hasDeletableSelection = hasSelectedPath \|\| hasSelectedMarker \|\| hasSelectedLabel/);
+assert.match(mapToolbarSource, /const showsContextualPanel = \(showsContextualBrushControls \|\| showsContextualPathControls \|\| showsTextCreationControls \|\| hasDeletableSelection \|\| showsSelectedMarkerControls \|\| showsSelectedLabelControls\)/);
 assert.match(mapToolbarSource, /className="immersive-wood-button immersive-wood-button--danger tool-context-panel__delete"/);
 assert.match(mapToolbarSource, />\s*DELETE\s*</);
-assert.match(mapToolbarSource, /onClick=\{hasSelectedPath \? onDeleteSelectedPath : onDeleteSelectedMarker\}/);
 assert.match(mapToolbarSource, /showShortcut=\{inOverflow\}/);
 assert.match(mapToolbarSource, /aria-label=\{shortcutDescription\}/);
 assert.match(mapToolbarSource, /title=\{shortcutDescription\}/);
 assert.match(mapToolbarSource, /\{label\}\{showShortcut &&/);
-assert.match(mapToolbarSource, /showsInlineBrushControls = !immersive && \(tool === 'biome_brush' \|\| tool === 'eraser'\)/);
-assert.match(mapToolbarSource, /showsContextualBrushControls = immersive && \(tool === 'biome_brush' \|\| tool === 'eraser'\)/);
-assert.match(mapToolbarSource, /showsInlinePathControls = !immersive && tool === 'path'/);
-assert.match(mapToolbarSource, /showsContextualPathControls = immersive && tool === 'path'/);
-assert.match(mapToolbarSource, /\{showsInlineBrushControls && <BiomeBrushControls/);
+assert.match(mapToolbarSource, /showsContextualBrushControls = \(tool === 'biome_brush' \|\| tool === 'eraser'\)/);
+assert.match(mapToolbarSource, /showsContextualPathControls = tool === 'path'/);
 assert.match(mapToolbarSource, /\{showsContextualPanel && \([\s\S]*className="map-toolbar tool-context-panel"[\s\S]*showsContextualBrushControls && \([\s\S]*<BrushControls[\s\S]*showBiome=\{tool === 'biome_brush'\}/);
 assert.match(mapToolbarSource, /\{showsContextualPanel && \([\s\S]*showsContextualPathControls && \([\s\S]*<PathModePicker pathGeometryType=\{pathGeometryType\}/);
-assert.match(mapToolbarSource, /function BiomeBrushControls\([\s\S]*<BiomePicker biome=\{biome\} disabled=\{disabled\} onBiomeChange=\{onBiomeChange\} \/>/);
 assert.match(mapToolbarSource, /function BrushControls\([\s\S]*showBiome && <BiomePicker[\s\S]*<BrushSizeControl/);
 assert.match(mapToolbarSource, /const PATH_MODE_OPTIONS:[\s\S]*value: 'freehand'[\s\S]*value: 'straight'[\s\S]*value: 'curve'/);
 assert.match(mapToolbarSource, /function PathModePicker[\s\S]*pickerId="path-mode-picker"[\s\S]*triggerLabel="Path drawing mode"/);
 assert.match(mapToolbarSource, /function ContextualPicker<T extends string>/);
-assert.match(workspaceSource, /<MapToolbar[\s\S]*immersive=\{appearance === 'immersive'\}/);
+assert.match(workspaceSource, /<MapToolbar/);
 assert.match(workspaceSource, /const enterNeutralPan = useCallback\(\(\) => \{[\s\S]*setTool\('pan'\)[\s\S]*setSelectedMarkerId\(cleared\.selectedMarkerId\)[\s\S]*setSelectedPathId\(null\)/);
 assert.match(workspaceSource, /if \(nextTool === 'pan'\) \{[\s\S]*enterNeutralPan\(\);/);
+assert.match(workspaceSource, /const confirmTextCreationFromMap = useCallback\(async[\s\S]*enterNeutralPan\(\);/);
+assert.match(workspaceSource, /setLabelPreviewState\(saved\);[\s\S]*setSelectedLabelId\(saved\.id\)/);
+assert.match(workspaceSource, /const commitSelectedLabelAndExit = useCallback\(async[\s\S]*saveLabelUpdate|updateLabel\(draft\)/);
+assert.match(workspaceSource, /const activateObjectTool = useCallback\(\(nextTool: MapTool\) => \{[\s\S]*setMarkerGalleryOpen\(false\)[\s\S]*setTool\(nextTool\)/);
 assert.doesNotMatch(mapToolbarSource, /<span>Biome<\/span>/);
 assert.doesNotMatch(mapToolbarSource, /Size \{brushWidth\}/);
 assert.doesNotMatch(mapToolbarSource, /<select\s+value=\{biome\}/);
 assert.match(mapToolbarSource, /aria-label="Brush size"/);
+assert.match(mapToolbarSource, /aria-label="Map text"/);
+assert.match(mapToolbarSource, /aria-label="Text size"/);
+assert.match(mapToolbarSource, /aria-label="Text rotation"/);
+assert.match(mapToolbarSource, /onBlur=\{\(event\) => \{[\s\S]*contains\(event\.relatedTarget as Node\)/);
+assert.match(mapToolbarSource, /onCreationCommit\(\);[\s\S]*queueMicrotask/);
+assert.match(mapToolbarSource, /onCreationCancel\(\);[\s\S]*queueMicrotask/);
+assert.match(mapToolbarSource, /showsTextCreationControls = tool === 'text' && selectedLabel === null/);
+assert.match(mapToolbarSource, /showsSelectedLabelControls = selectedLabel !== null/);
+assert.match(mapToolbarSource, /onClick=\{hasSelectedPath \? onDeleteSelectedPath : hasSelectedMarker \? onDeleteSelectedMarker : onDeleteSelectedLabel\}/);
 assert.match(mapToolbarSource, /aria-haspopup="listbox"/);
 assert.match(mapToolbarSource, /role="listbox"/);
 assert.match(mapToolbarSource, /role="option"/);
@@ -112,7 +102,33 @@ assert.match(mapMenuSource, /onKeyDown[\s\S]*event\.key === 'Escape'[\s\S]*event
 assert.match(mapMenuSource, /document\.addEventListener\('keydown', onKeyDown\)/);
 assert.match(coordinateSource, /closeOnEscape[\s\S]*event\.preventDefault\(\);[\s\S]*event\.stopPropagation\(\);[\s\S]*onClose\(\)/);
 assert.match(responsiveOverflowSource, /closeOnEscape[\s\S]*event\.preventDefault\(\);[\s\S]*event\.stopPropagation\(\);[\s\S]*setOpen\(false\)/);
-assert.match(canvasSource, /event\.key === 'Escape' && !isTypingTarget\(event\.target\)[\s\S]*armedMarkerTypeRef\.current !== null[\s\S]*clearMarkerPlacement\(\);[\s\S]*activePointerGestureRef\.current !== null[\s\S]*cancelActivePointerGesture\(\);[\s\S]*selectedMarkerIdRef\.current !== null \|\| selectedPathIdRef\.current !== null \|\| toolRef\.current !== 'pan'[\s\S]*onToolChange\('pan'\)/);
+assert.match(canvasSource, /event\.key === 'Escape' && !isTypingTarget\(event\.target\)[\s\S]*armedMarkerTypeRef\.current !== null[\s\S]*clearMarkerPlacement\(\);[\s\S]*activePointerGestureRef\.current !== null[\s\S]*cancelActivePointerGesture\(\);[\s\S]*selectedMarkerIdRef\.current !== null \|\| selectedPathIdRef\.current !== null \|\| selectedLabelIdRef\.current !== null \|\| toolRef\.current !== 'pan'[\s\S]*onToolChange\('pan'\)/);
+assert.match(canvasSource, /hitTestLabel\(labelsRef\.current, worldPoint, cameraRef\.current\.zoom\)/);
+assert.match(canvasSource, /textCreationActive: boolean/);
+assert.match(canvasSource, /currentTool === 'text' && textCreationActiveRef\.current && initialGesture === 'select'[\s\S]*onTextCreationMapConfirm\(\)/);
+assert.match(canvasSource, /hitTestLabel\(\[draftPreview\], worldPoint, cameraRef\.current\.zoom\)[\s\S]*onTextCreationPointerDown\(\)/);
+assert.match(canvasSource, /if \(!labels\.some\(\(label\) => label\.id === preview\.id\)\)[\s\S]*return \[\.\.\.labels, preview\]/);
+assert.match(canvasSource, /currentTool === 'text'[\s\S]*onTextMapClickAway\(\)/);
+assert.match(canvasSource, /currentTool === 'select' && selectedLabelIdRef\.current !== null/);
+assert.match(canvasSource, /text-create-drag/);
+assert.match(canvasSource, /if \(current\.released\)[\s\S]*onLabelUpdate\(movedLabel\)/);
+assert.match(canvasSource, /OBJECT_DRAG_THRESHOLD_PX/);
+assert.match(canvasSource, /grabOffset: \[worldPoint\[0\] - hitLabel\.x, worldPoint\[1\] - hitLabel\.y\]/);
+assert.match(canvasSource, /grabOffset: \[worldPoint\[0\] - hitMarker\.x, worldPoint\[1\] - hitMarker\.y\]/);
+assert.match(canvasSource, /if \(wasSelected\) \{[\s\S]*activePointerGestureRef\.current = \{ pointerId: event\.pointerId, kind: 'label-drag' \}/);
+assert.match(canvasSource, /if \(!dragging\.dragStarted \|\| !dragging\.moved\)/);
+assert.match(canvasSource, /if \(interactivePan\) \{[\s\S]*activateObjectTool\('text'\)/);
+assert.match(canvasSource, /if \(interactivePan\) \{[\s\S]*activateObjectTool\('marker'\)/);
+assert.match(canvasSource, /if \(interactivePan\) \{[\s\S]*activateObjectTool\('path'\)/);
+assert.match(canvasSource, /objectToolActivationRef\.current === tool/);
+assert.match(rendererSource, /setLabels\(labels: readonly Label\[\]\)/);
+assert.match(rendererSource, /this\.textLabels\.alpha = this\.pathOpacity/);
+const pathOpacityBlock = rendererSource.slice(
+  rendererSource.indexOf('setPathsOpacity(opacity: number): void'),
+  rendererSource.indexOf('setSelectedPath(pathId: string | null): void'),
+);
+assert.doesNotMatch(pathOpacityBlock, /this\.labels\.alpha/);
+assert.match(rendererSource, /fontFamily: `\$\{MARKER_CAPTION_FONT_FAMILY\}/);
 assert.match(hudLayoutSource, /MEDIUM_UTILITY_IDS = new Set\(\['map-library'/);
 assert.match(hudLayoutSource, /NARROW_UTILITY_IDS = new Set\(\['map-library'/);
 assert.match(stylesSource, /\.map-top-hud \{[\s\S]*display: flex;[\s\S]*flex-wrap: wrap;[\s\S]*column-gap: 20px;[\s\S]*row-gap: 8px/);
@@ -227,14 +243,12 @@ assert.match(biomeBrushControlsBlock, /tool-context-panel \.biome-brush-controls
 assert.match(biomeBrushControlsBlock, /tool-context-panel > \.contextual-picker \{[\s\S]*align-self: stretch/);
 assert.match(biomeBrushControlsBlock, /tool-context-panel \{[\s\S]*gap: var\(--immersive-px\)/);
 assert.match(biomeBrushControlsBlock, /tool-context-panel__delete \{[\s\S]*height: var\(--immersive-toolbar-control-height\)[\s\S]*font-size: var\(--immersive-ui-button-font-size\)/);
-assert.match(canvasSource, /initialize\(host, appearanceRef\.current\)/);
-assert.match(canvasSource, /setAppearance\(appearance\)/);
-assert.match(rendererSource, /setBiomeTextureAppearance\(appearance\)/);
+assert.match(canvasSource, /initialize\(host\)/);
 assert.match(rendererSource, /uCoastlineFeatherScale/);
 assert.doesNotMatch(rendererSource, /uCoastlineQuantization|uCoastlinePhase|updateCoastlineQuantization|physicalCoordinate = floor/);
 assert.match(rendererSource, /texture\(uTexture, vTextureCoord\)/);
-assert.match(rendererSource, /this\.appearance === 'immersive' \? 2\.5 : 1\.9/);
-assert.match(rendererSource, /this\.appearance === 'immersive' \? 0\.4 : 1/);
+assert.match(rendererSource, /uCoastlineThickness = resolution \* 2\.5/);
+assert.match(rendererSource, /uCoastlineFeatherScale = 0\.4/);
 assert.match(rendererSource, /destroyChildren\(this\.terrainStrokes\)/);
 assert.match(rendererSource, /redrawParchment/);
 assert.match(rendererSource, /private readonly parchmentSurfaceContainer = new Container\(\)/);
@@ -269,19 +283,15 @@ assert.match(parchmentSource, /destroyParchmentTextures/);
 assert.doesNotMatch(parchmentSource, /Shader|Mesh|TilingSprite|RenderTexture|Math\.random/);
 assert.match(rendererSource, /margin = 4 \/ zoom/);
 assert.match(rendererSource, /this\.requestStageRender\(\)/);
-assert.match(biomeSource, /activeTextureAppearance/);
 assert.match(biomeSource, /IMMERSIVE_BIOME_PATTERN_SOURCE_RESOLUTION = 0\.375/);
-assert.match(biomeSource, /activeScaleMode/);
 assert.match(biomeSource, /scaleMode/);
 assert.match(biomeSource, /drawImmersiveBaseVariation/);
 assert.match(biomeSource, /const width = random\(\) < 0\.68 \? 3 : random\(\) < 0\.93 \? 4 : 5/);
 assert.match(biomeSource, /const height = random\(\) < 0\.2 \? 2 : random\(\) < 0\.92 \? 3 : 4/);
-assert.match(biomeSource, /texture\.destroy\(true\)/);
 assert.match(stylesSource, /\.map-workspace\[data-ui-mode='immersive'\]/);
 assert.match(stylesSource, /data-ui-mode='immersive'\][\s\S]*\.utility-control[\s\S]*font-family: ValheimNorse/);
 assert.match(stylesSource, /data-ui-mode='immersive'\][\s\S]*\.map-menu__panel[\s\S]*clip-path: polygon/);
 assert.match(stylesSource, /data-ui-mode='immersive'\][\s\S]*\.utility-control[\s\S]*transition: none/);
-assert.match(stylesSource, /data-ui-mode='immersive'\][\s\S]*\.marker-inspector input[\s\S]*border-width: 2px/);
 assert.match(stylesSource, /data-ui-mode='immersive'\][\s\S]*\.map-controls[\s\S]*border-width: 3px/);
 assert.match(stylesSource, /data-ui-mode='immersive'\][\s\S]*\.utility-control[\s\S]*translate\(2px, 2px\)/);
 assert.match(stylesSource, /data-ui-mode='immersive'\][\s\S]*\.map-menu__panel[\s\S]*clip-path: polygon\(0 6px/);
@@ -290,16 +300,23 @@ assert.doesNotMatch(stylesSource, /\.map-debug/);
 assert.doesNotMatch(workspaceSource, /className="map-debug/);
 assert.match(workspaceSource, /const \[debugInfoOpen, setDebugInfoOpen\] = useState\(initialUiPreferences\.debugOpen\)/);
 assert.match(workspaceSource, /const \[debugInfoView, setDebugInfoView\] = useState<DebugInfoView>\('readout'\)/);
+assert.match(workspaceSource, /type DebugInfoView = 'readout' \| 'settings' \| 'bug-report'/);
+assert.match(workspaceSource, /mailto:valheim-map@adg\.one\?subject=\$\{encodeURIComponent\('Valheim Map - Bug report'\)\}/);
 assert.match(workspaceSource, /const \[debugCoordinateMode, setDebugCoordinateMode\] = useState<DebugCoordinateMode>\(initialUiPreferences\.debugCoordinateMode\)/);
 assert.match(workspaceSource, /debugOpen: debugInfoOpen,[\s\S]*debugCoordinateMode,/);
 assert.match(workspaceSource, /className="debug-info__button immersive-wood-button"/);
 assert.match(workspaceSource, /aria-label="Show debug information"[\s\S]*aria-expanded=\{debugInfoOpen\}/);
-assert.ok(workspaceSource.includes("appearance === 'immersive' ? (!debugInfoOpen ? ("));
+assert.ok(workspaceSource.includes("{!debugInfoOpen ? ("));
 assert.match(workspaceSource, /className="debug-info__popup"[\s\S]*ZOOM:[\s\S]*debug-info__coordinate-line[\s\S]*<span>X:<\/span>[\s\S]*formatCoordinate\(debugValheim\?\.x\)[\s\S]*debug-info__coordinate-line[\s\S]*<span>Z:<\/span>[\s\S]*formatCoordinate\(debugValheim\?\.z\)/);
-assert.match(workspaceSource, /if \(appearance !== 'immersive' && !debugInfoRef\.current\?\.contains\(event\.target as Node\)\)/);
 assert.match(workspaceSource, /aria-label="Debug settings"[\s\S]*>\s*\?/);
 assert.match(workspaceSource, /aria-label="Close debug information"[\s\S]*onClick=\{closeOrBackDebugInfo\}/);
 assert.match(workspaceSource, /aria-label="Back to debug information"[\s\S]*onClick=\{closeOrBackDebugInfo\}/);
+assert.match(workspaceSource, /debugInfoView === 'bug-report'[\s\S]*className="debug-info__bug-report"[\s\S]*REPORT BUG/);
+assert.match(workspaceSource, /aria-label="Back to debug information"[\s\S]*onClick=\{closeOrBackDebugInfo\}/);
+assert.match(workspaceSource, /aria-label="Report Bug"[\s\S]*title="Report Bug"[\s\S]*onClick=\{\(\) => setDebugInfoView\('bug-report'\)\}/);
+assert.match(workspaceSource, /aria-label="Coordinates Settings"[\s\S]*title="Coordinates Settings"[\s\S]*onClick=\{\(\) => setDebugInfoView\('settings'\)\}/);
+assert.match(workspaceSource, /if \(debugInfoView === 'bug-report'\) \{[\s\S]*setDebugInfoView\('readout'\)/);
+assert.match(workspaceSource, /debugInfoView === 'bug-report'[\s\S]*setDebugInfoView\('settings'\)[\s\S]*debugInfoView === 'settings'/);
 assert.match(workspaceSource, /debug-info__coordinate-line[\s\S]*<span>X:<\/span>[\s\S]*<span>\{formatCoordinate/);
 assert.match(workspaceSource, /debug-info__coordinate-line[\s\S]*<span>Z:<\/span>[\s\S]*<span>\{formatCoordinate/);
 assert.match(workspaceSource, /debug-info__symbol" aria-hidden="true">\?<\/span>/);
@@ -307,6 +324,7 @@ assert.match(workspaceSource, /role="radiogroup" aria-label="Coordinate source"[
 assert.match(workspaceSource, /const centreValheim = mapToValheimCoordinates\(mapSession\.camera\.cameraX, mapSession\.camera\.cameraY\)/);
 assert.match(workspaceSource, /const debugValheim = debugCoordinateMode === 'cursor' \? cursorValheim : centreValheim/);
 assert.match(workspaceSource, /closeOnEscape[\s\S]*debugInfoView === 'settings'[\s\S]*setDebugInfoView\('readout'\)[\s\S]*closeDebugInfo\(\)/);
+assert.match(workspaceSource, /closeOnEscape[\s\S]*debugInfoView === 'bug-report'[\s\S]*setDebugInfoView\('settings'\)/);
 assert.match(stylesSource, /\.map-workspace \{[\s\S]*--hud-edge-inset: 14px/);
 assert.match(stylesSource, /\.map-top-hud \{[\s\S]*top: var\(--hud-edge-inset\)[\s\S]*left: var\(--hud-edge-inset\)/);
 assert.match(stylesSource, /\.debug-info \{[\s\S]*bottom: var\(--hud-edge-inset\)[\s\S]*left: var\(--hud-edge-inset\)/);
@@ -317,6 +335,7 @@ assert.match(stylesSource, /data-ui-mode='immersive'\] \.debug-info__symbol[\s\S
 assert.match(stylesSource, /debug-info__action[\s\S]*width: calc\(var\(--immersive-px\) \* 8\)[\s\S]*height: calc\(var\(--immersive-px\) \* 8\)/);
 assert.match(stylesSource, /\.debug-info__zoom-line \{[\s\S]*align-items: center/);
 assert.match(stylesSource, /data-ui-mode='immersive'\] \.debug-info__coordinate-line[\s\S]*gap: var\(--immersive-px\)/);
+assert.match(stylesSource, /data-ui-mode='immersive'\] \.debug-info__report-button[\s\S]*width: 100%[\s\S]*font-size: var\(--immersive-ui-button-font-size\)/);
 assert.match(stylesSource, /\.map-workspace\[data-ui-mode='immersive'\] \{[\s\S]*font-family: ValheimNorse, Georgia, serif/);
 assert.match(mapMenuSource, /map-menu__map-button immersive-wood-button/);
 assert.match(mapMenuSource, /map-menu__actions-toggle immersive-wood-button/);
@@ -337,7 +356,6 @@ assert.match(stylesSource, /--immersive-panel-step:\s*calc\(var\(--immersive-px\
 assert.match(stylesSource, /clip-path:\s*polygon\([\s\S]*var\(--immersive-panel-step\)/);
 assert.match(stylesSource, /filter:\s*drop-shadow\([\s\S]*var\(--immersive-deep-ink\)/);
 assert.match(stylesSource, /transform:\s*translate\(var\(--immersive-px\), var\(--immersive-px\)\)/);
-assert.match(stylesSource, /map-toolbar__size input\[type='range'\][\s\S]*::-webkit-slider-thumb/);
 assert.doesNotMatch(stylesSource, /\.map-menu__row--selected\s*\{\s*border-left-color/);
 assert.doesNotMatch(stylesSource, /\.map-menu__row\s*\{\s*border-(?:left|bottom)/);
 assert.match(stylesSource, /map-toolbar__tools \.responsive-overflow__visible[\s\S]*gap: 4px/);
@@ -430,4 +448,4 @@ assert.match(finalGeometryBlock, /border: 0/);
 assert.doesNotMatch(finalGeometryBlock, /:last-child/);
 assert.doesNotMatch(finalGeometryBlock, /slot-right-edge|top-right 4x4|corner owner/);
 
-console.log('Appearance persistence and theme wiring verification passed');
+console.log('Single Immersive appearance and presentation contract verification passed');

@@ -235,4 +235,16 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 6,
+    name: 'add_label_rotation',
+    up(database) {
+      database.exec(`
+        ALTER TABLE labels
+          ADD COLUMN rotation_degrees REAL NOT NULL DEFAULT 0 CHECK (
+            rotation_degrees >= 0 AND rotation_degrees < 360
+          );
+      `);
+    },
+  },
 ];

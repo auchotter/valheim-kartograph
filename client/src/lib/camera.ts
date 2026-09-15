@@ -19,7 +19,7 @@ export interface ViewportSize {
 }
 
 export const DEFAULT_ZOOM = 1;
-export const MIN_ZOOM = 0.1;
+export const MIN_ZOOM = 0.05;
 export const MAX_ZOOM = 8;
 
 export const DEFAULT_CAMERA: Camera = {

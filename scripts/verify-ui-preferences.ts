@@ -10,22 +10,26 @@ import { readFileSync } from 'node:fs';
 
 assert.deepEqual(
   parseMapUiPreferences(JSON.stringify({ version: 1, pathOpacity: 0.5, protectEnabled: false, gridEnabled: true })),
-  { ...DEFAULT_MAP_UI_PREFERENCES, pathOpacity: 0.5, protectEnabled: false, gridEnabled: true },
+  { ...DEFAULT_MAP_UI_PREFERENCES, pathOpacity: 0.5, textOpacity: 0.5, protectEnabled: false, gridEnabled: true },
 );
 assert.deepEqual(
   parseMapUiPreferences(JSON.stringify({ version: 1, pathOpacity: 0, protectEnabled: true, gridEnabled: false })),
-  { ...DEFAULT_MAP_UI_PREFERENCES, pathOpacity: 0, protectEnabled: true, gridEnabled: false },
+  { ...DEFAULT_MAP_UI_PREFERENCES, pathOpacity: 0, textOpacity: 0, protectEnabled: true, gridEnabled: false },
+);
+assert.deepEqual(
+  parseMapUiPreferences(JSON.stringify({ version: 1, pathOpacity: 0.5, markerOpacity: 0.25, textOpacity: 0.9, protectEnabled: false, gridEnabled: true })),
+  { ...DEFAULT_MAP_UI_PREFERENCES, pathOpacity: 0.5, markerOpacity: 0.25, textOpacity: 0.9, protectEnabled: false, gridEnabled: true },
 );
 assert.deepEqual(parseMapUiPreferences(null), DEFAULT_MAP_UI_PREFERENCES);
 assert.deepEqual(parseMapUiPreferences('{bad-json'), DEFAULT_MAP_UI_PREFERENCES);
-assert.deepEqual(parseMapUiPreferences(JSON.stringify({ version: 1, pathOpacity: 0.25, protectEnabled: false, gridEnabled: true })), DEFAULT_MAP_UI_PREFERENCES);
+assert.deepEqual(parseMapUiPreferences(JSON.stringify({ version: 1, pathOpacity: 1.25, protectEnabled: false, gridEnabled: true })), DEFAULT_MAP_UI_PREFERENCES);
 assert.deepEqual(parseMapUiPreferences(JSON.stringify({ version: 2, pathOpacity: 0.5, protectEnabled: false, gridEnabled: true })), DEFAULT_MAP_UI_PREFERENCES);
 
 const storage = new Map<string, string>();
 writeMapUiPreferencesToStorage({
   getItem: (key) => storage.get(key) ?? null,
   setItem: (key, value) => storage.set(key, value),
-}, { ...DEFAULT_MAP_UI_PREFERENCES, pathOpacity: 0.5, protectEnabled: false, gridEnabled: true });
+}, { ...DEFAULT_MAP_UI_PREFERENCES, pathOpacity: 0.5, textOpacity: 0.5, protectEnabled: false, gridEnabled: true });
 assert.deepEqual(JSON.parse(storage.get(MAP_UI_PREFERENCES_STORAGE_KEY) ?? '{}'), {
   version: 1,
   pathOpacity: 0.5,
@@ -33,6 +37,8 @@ assert.deepEqual(JSON.parse(storage.get(MAP_UI_PREFERENCES_STORAGE_KEY) ?? '{}')
   gridEnabled: true,
   debugOpen: false,
   debugCoordinateMode: 'cursor',
+  markerOpacity: 1,
+  textOpacity: 0.5,
 });
 
 const migratedLocal = new Map<string, string>();
@@ -41,14 +47,14 @@ const legacySession = new Map<string, string>([
 ]);
 assert.deepEqual(
   readMapUiPreferencesFromStorage(mapStorage(migratedLocal), mapStorage(legacySession)),
-  { ...DEFAULT_MAP_UI_PREFERENCES, pathOpacity: 0.5, protectEnabled: false, gridEnabled: true },
+  { ...DEFAULT_MAP_UI_PREFERENCES, pathOpacity: 0.5, textOpacity: 0.5, protectEnabled: false, gridEnabled: true },
 );
 assert.equal(migratedLocal.has(MAP_UI_PREFERENCES_STORAGE_KEY), true);
 
 // A later tab/session reads the durable value even when its session store is empty.
 assert.deepEqual(
   readMapUiPreferencesFromStorage(mapStorage(migratedLocal), mapStorage(new Map())),
-  { ...DEFAULT_MAP_UI_PREFERENCES, pathOpacity: 0.5, protectEnabled: false, gridEnabled: true },
+  { ...DEFAULT_MAP_UI_PREFERENCES, pathOpacity: 0.5, textOpacity: 0.5, protectEnabled: false, gridEnabled: true },
 );
 
 assert.deepEqual(

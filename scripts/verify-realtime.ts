@@ -216,6 +216,7 @@ try {
     y: -17,
     text: 'North gate',
     fontSize: 24,
+    referenceZoom: 0.79,
     rotationDegrees: 45,
   };
   const labelCreate = await mutate('/objects', actorA, 109, label, map.id);
@@ -227,7 +228,7 @@ try {
     actorId: actorB,
     clientOperationId: id(110),
     baseObjectVersion: 1,
-    object: { ...label, text: 'South gate', rotationDegrees: 90 },
+    object: { ...label, text: 'South gate', fontSize: 32, referenceZoom: 1.5, rotationDegrees: 90 },
   });
   assert.equal(labelUpdate.statusCode, 200);
   await expectOperation(socketA, 'object.update', 'label', 11);

@@ -22,6 +22,20 @@ try {
   verifyMigratedData(migrationTwoDatabase);
   migrationTwoDatabase.close();
 
+  const migrationSixDatabase = openTemporaryDatabase('migration-six.sqlite');
+  applyMigrations(migrationSixDatabase, migrations.filter((migration) => migration.version <= 6));
+  insertMap(migrationSixDatabase);
+  insertObject(migrationSixDatabase, 'existing-label', 'label', 300, 1);
+  migrationSixDatabase
+    .prepare("INSERT INTO labels (object_id, x, y, text, font_size, rotation_degrees) VALUES ('existing-label', 0, 0, 'Old label', 24, 30)")
+    .run();
+  applyMigrations(migrationSixDatabase, migrations.filter((migration) => migration.version === 7));
+  assert.deepEqual(
+    migrationSixDatabase.prepare('SELECT font_size, reference_zoom, rotation_degrees FROM labels WHERE object_id = ?').get('existing-label'),
+    { font_size: 24, reference_zoom: 1, rotation_degrees: 30 },
+  );
+  migrationSixDatabase.close();
+
   console.log('Schema migrations and constraints verification passed');
 } finally {
   rmSync(temporaryDirectory, { recursive: true, force: true });
@@ -179,9 +193,17 @@ function verifyFreshSchema(database: Database.Database): void {
   insertObject(database, 'label-cascade', 'label', 300, 13);
   database.prepare("INSERT INTO labels (object_id, x, y, text) VALUES ('label-cascade', 0, 0, 'Label')").run();
   assert.deepEqual(
-    database.prepare('SELECT font_size, rotation_degrees FROM labels WHERE object_id = ?').get('label-cascade'),
-    { font_size: 16, rotation_degrees: 0 },
+    database.prepare('SELECT font_size, reference_zoom, rotation_degrees FROM labels WHERE object_id = ?').get('label-cascade'),
+    { font_size: 16, reference_zoom: 1, rotation_degrees: 0 },
   );
+  for (const [id, referenceZoom] of [['label-zero-zoom', 0], ['label-negative-zoom', -1]] as const) {
+    insertObject(database, id, 'label', 300, 14);
+    assert.throws(() =>
+      database
+        .prepare("INSERT INTO labels (object_id, x, y, text, reference_zoom) VALUES (?, 0, 0, 'Label', ?)")
+        .run(id, referenceZoom),
+    );
+  }
   insertObject(database, 'label-invalid-rotation', 'label', 300, 14);
   assert.throws(() =>
     database.prepare("INSERT INTO labels (object_id, x, y, text, rotation_degrees) VALUES (?, 0, 0, 'Label', 360)")

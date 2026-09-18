@@ -50,6 +50,7 @@ interface ObjectRow extends MapRow {
   label_y: number | null;
   label_text: string | null;
   font_size: number | null;
+  reference_zoom: number | null;
   rotation_degrees: number | null;
 }
 
@@ -76,7 +77,8 @@ const objectSelect = `
     p.path_type, p.geometry_type, p.stroke_width, p.points_json AS path_points_json,
     mr.marker_type, mr.x AS marker_x, mr.y AS marker_y, mr.name AS marker_name,
     mr.note AS marker_note, mr.size_scale, mr.direction_degrees,
-    l.x AS label_x, l.y AS label_y, l.text AS label_text, l.font_size, l.rotation_degrees
+    l.x AS label_x, l.y AS label_y, l.text AS label_text, l.font_size,
+    l.reference_zoom, l.rotation_degrees
   FROM map_objects mo
   LEFT JOIN biome_strokes bs ON bs.object_id = mo.id
   LEFT JOIN paths p ON p.object_id = mo.id
@@ -367,8 +369,20 @@ export class MapRepository {
       return;
     }
     this.database
-      .prepare('INSERT INTO labels (object_id, x, y, text, font_size, rotation_degrees) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(object.id, object.x, object.y, object.text, object.fontSize, object.rotationDegrees);
+      .prepare(
+        `INSERT INTO labels (
+          object_id, x, y, text, font_size, reference_zoom, rotation_degrees
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        object.id,
+        object.x,
+        object.y,
+        object.text,
+        object.fontSize,
+        object.referenceZoom,
+        object.rotationDegrees,
+      );
   }
 
   private deleteSubtype(objectId: string): void {
@@ -450,6 +464,7 @@ function toMapObject(row: ObjectRow): MapObject {
     y: required(row.label_y),
     text: required(row.label_text),
     fontSize: required(row.font_size),
+    referenceZoom: required(row.reference_zoom),
     rotationDegrees: required(row.rotation_degrees),
   } as Label;
 }

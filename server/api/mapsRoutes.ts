@@ -12,9 +12,31 @@ import {
   updateObjectSchema,
 } from './validation.js';
 import { MapService } from '../services/mapService.js';
+import { MAX_MAP_FILE_BYTES, parsePortableMap } from '../../shared/portableMap.js';
 
 export async function registerMapRoutes(app: FastifyInstance, service: MapService): Promise<void> {
   app.get('/api/maps', async () => ({ maps: service.listMaps() }));
+
+  app.get('/api/maps/:mapId/export', async (request) => {
+    const { mapId } = parse(mapIdParamsSchema, request.params);
+    return service.exportMap(mapId);
+  });
+
+  app.post('/api/maps/import', {
+    bodyLimit: MAX_MAP_FILE_BYTES,
+    errorHandler(error, _request, reply) {
+      const status = (error as { statusCode?: number }).statusCode;
+      if (status === 413) return reply.code(413).send({ error: 'Valheim Kartograph map files must be at most 64 MiB.' });
+      if (status === 400) return reply.code(400).send({ error: 'Invalid Valheim Kartograph map file: invalid JSON.' });
+      app.log.error(error);
+      return reply.code(500).send({ error: 'Valheim Kartograph map import failed. No map was imported.' });
+    },
+  }, async (request, reply) => {
+    let snapshot;
+    try { snapshot = parsePortableMap(request.body); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : 'Invalid Valheim Kartograph map file.' }); }
+    return reply.code(201).send(service.importMap(snapshot));
+  });
 
   app.post('/api/maps', async (request, reply) => {
     const map = service.createMap(parse(mapNameSchema, request.body));

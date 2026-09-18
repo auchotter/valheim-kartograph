@@ -50,17 +50,9 @@ button {
   cursor: grabbing;
 }
 
-.map-canvas-host--biome_brush,
-.map-canvas-host--eraser,
-.map-canvas-host--path,
-.map-canvas-host--marker {
-  cursor: crosshair;
-}
-
-.map-canvas-host--biome_brush:active,
-.map-canvas-host--eraser:active,
-.map-canvas-host--path:active,
-.map-canvas-host--marker:active {
+/* A crosshair identifies new Path creation, never selected Path editing. */
+.map-canvas-host--path-creation,
+.map-canvas-host--path-creation:active {
   cursor: crosshair;
 }
 
@@ -413,11 +405,14 @@ button {
 
 .map-menu__header {
   display: flex;
+  gap: 4px;
   align-items: center;
   justify-content: space-between;
   padding: 3px 3px 7px 7px;
   font-size: 13px;
 }
+
+.map-menu__header > strong { margin-right: auto; }
 
 .map-menu button {
   color: inherit;
@@ -699,6 +694,20 @@ button {
 .debug-info__coordinate-line {
   display: flex;
   gap: 4px;
+}
+
+.debug-info__coordinate-line--versioned {
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.debug-info__coordinate-leading {
+  display: flex;
+  gap: 4px;
+}
+
+.debug-info__version {
+  white-space: nowrap;
 }
 
 .debug-info__action {
@@ -1625,9 +1634,11 @@ button {
   --immersive-wood-frame: #8a5128;
   --immersive-wood-face: #b96f35;
   --immersive-wood-light: #d79a57;
+  --immersive-button-hover: var(--immersive-wood-light);
   --immersive-wood-highlight: #e7b76f;
   --immersive-wood-shadow: #6b3f22;
   --immersive-wood-selected: #9e4f27;
+  --immersive-danger-button-hover: var(--immersive-wood-selected);
   --immersive-wood-text: #2d1c14;
   --immersive-wood-selected-text: #f3dda8;
 }
@@ -1702,7 +1713,7 @@ button {
 .map-workspace[data-ui-mode='immersive'] .map-top-hud__right .map-menu__toggle[aria-expanded='true'],
 .map-workspace[data-ui-mode='immersive'] .marker-palette__item:hover,
 .map-workspace[data-ui-mode='immersive'] .immersive-wood-button:hover:not(:disabled) {
-  background-color: var(--immersive-wood-light);
+  background: var(--immersive-button-hover);
 }
 
 .map-workspace[data-ui-mode='immersive'] .map-controls .utility-control[aria-pressed='true'],
@@ -2006,7 +2017,7 @@ button {
 .map-workspace[data-ui-mode='immersive'] .map-menu__list {
   box-sizing: border-box;
   gap: var(--immersive-px);
-  padding: calc(var(--immersive-px) * 3);
+  padding: var(--map-library-content-inset);
   scrollbar-gutter: stable;
   scrollbar-color: var(--immersive-wood-frame) #d6b778;
   scrollbar-width: auto;
@@ -2111,6 +2122,12 @@ button {
 .map-workspace[data-ui-mode='immersive'] .immersive-wood-button--danger {
   color: var(--immersive-wood-selected-text) !important;
   background-color: var(--immersive-wood-selected) !important;
+}
+
+/* Destructive controls intentionally keep the Map Library's darker hover.
+   This override is hover-only; its geometry and active treatment stay shared. */
+.map-workspace[data-ui-mode='immersive'] .immersive-wood-button--danger:hover:not(:disabled) {
+  background: var(--immersive-danger-button-hover) !important;
 }
 
 .map-workspace[data-ui-mode='immersive'] .map-menu__header strong,
@@ -3099,6 +3116,16 @@ button {
   gap: var(--immersive-px);
 }
 
+.map-workspace[data-ui-mode='immersive'] .debug-info__coordinate-leading {
+  gap: var(--immersive-px);
+}
+
+.map-workspace[data-ui-mode='immersive'] .debug-info__version {
+  font-size: calc(var(--immersive-ui-button-font-size) - 5px);
+  font-weight: 400;
+  opacity: 0.8;
+}
+
 .map-workspace[data-ui-mode='immersive'] .debug-info__action {
   position: relative;
   z-index: 3;
@@ -3293,4 +3320,92 @@ button {
 .map-workspace[data-ui-mode='immersive'] .marker-gallery__item:focus-visible {
   outline: var(--immersive-px) solid var(--immersive-wood-highlight);
   outline-offset: 0;
+}
+
+/* The View HUD opacity control is an anchored overlay; it must not participate
+   in the HUD row's flex sizing or move the map. */
+.map-workspace[data-ui-mode='immersive'] .map-top-hud__utility--opacity {
+  position: relative;
+  pointer-events: none;
+}
+
+.map-workspace[data-ui-mode='immersive'] .opacity-popup {
+  position: fixed;
+  z-index: 8;
+  display: block;
+  width: min(320px, calc(100vw - var(--immersive-hud-visible-edge-inset) * 2));
+  max-height: none;
+  overflow: visible;
+  pointer-events: auto;
+}
+
+.map-workspace[data-ui-mode='immersive'] .opacity-popup__content {
+  display: grid;
+  gap: calc(var(--immersive-px) * 2);
+  width: 100%;
+  padding: calc(var(--immersive-px) * 2);
+  box-sizing: border-box;
+  font-family: ValheimNorse, Georgia, serif;
+  font-size: var(--immersive-ui-button-font-size);
+}
+
+.map-workspace[data-ui-mode='immersive'] .opacity-popup__row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: calc(var(--immersive-px) * 2);
+  min-height: var(--immersive-toolbar-control-height);
+}
+
+.map-workspace[data-ui-mode='immersive'] .opacity-popup__row > span {
+  line-height: 1;
+}
+
+.map-workspace[data-ui-mode='immersive'] .opacity-popup__slider {
+  width: 100%;
+}
+
+/* Map Library utility drawer: it shares the list's content boundary rather
+   than floating above map rows. The title keeps its approved left inset. */
+.map-workspace[data-ui-mode='immersive'] .map-menu__panel {
+  --map-library-content-inset: calc(var(--immersive-px) * 3);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__header {
+  padding-right: var(--map-library-content-inset);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__portable-toggle {
+  box-sizing: border-box;
+  flex: 0 0 var(--immersive-toolbar-control-height);
+  width: var(--immersive-toolbar-control-height);
+  height: var(--immersive-toolbar-control-height);
+  min-height: var(--immersive-toolbar-control-height);
+  max-height: var(--immersive-toolbar-control-height);
+  padding: 0;
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__portable-toggle[aria-expanded='true'] {
+  color: var(--immersive-wood-selected-text);
+  background-color: var(--immersive-wood-selected);
+  box-shadow: inset 0 2px 0 rgb(231 183 111 / 36%),
+    inset 2px 0 0 rgb(231 183 111 / 36%),
+    inset 0 -2px 0 var(--immersive-deep-ink),
+    inset -2px 0 0 var(--immersive-deep-ink);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__portable-drawer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--immersive-px);
+  padding: 0 var(--map-library-content-inset) var(--map-library-content-inset);
+}
+
+.map-workspace[data-ui-mode='immersive'] .map-menu__portable-drawer .immersive-wood-button {
+  width: 100%;
+  height: var(--immersive-toolbar-control-height);
+  min-height: var(--immersive-toolbar-control-height);
+  max-height: var(--immersive-toolbar-control-height);
+  padding-inline: 15px;
+  font-size: var(--immersive-ui-button-font-size);
 }

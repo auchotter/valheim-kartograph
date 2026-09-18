@@ -62,6 +62,7 @@ export interface LabelCreate {
   y: number;
   text: string;
   fontSize: number;
+  referenceZoom: number;
   rotationDegrees: number;
 }
 
@@ -212,6 +213,7 @@ export async function updateLabel(
         y: object.y,
         text: object.text,
         fontSize: object.fontSize,
+        referenceZoom: object.referenceZoom,
         rotationDegrees: object.rotationDegrees,
       },
     }),

@@ -8,6 +8,7 @@ export function MarkerCaptionField({
   captionDraft,
   onCaptionDraftChange,
   onUpdate,
+  onConfirm,
   className = 'marker-caption-field__input',
 }: {
   marker: Marker;
@@ -15,6 +16,7 @@ export function MarkerCaptionField({
   captionDraft: string | undefined;
   onCaptionDraftChange: (markerId: string, draft: string | null) => void;
   onUpdate: (marker: Marker) => Promise<boolean>;
+  onConfirm: () => Promise<boolean>;
   className?: string;
 }) {
   const fieldRef = useRef<HTMLSpanElement>(null);
@@ -88,8 +90,10 @@ export function MarkerCaptionField({
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
             event.preventDefault();
-            void commitCaption();
-            event.currentTarget.blur();
+            event.stopPropagation();
+            if (event.nativeEvent.isComposing || captionCommitInFlightRef.current) return;
+            captionCommitInFlightRef.current = true;
+            void onConfirm().finally(() => { captionCommitInFlightRef.current = false; });
           } else if (event.key === 'Escape') {
             event.preventDefault();
             event.stopPropagation();

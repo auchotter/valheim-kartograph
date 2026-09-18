@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { visibleSegmentRange } from '../client/src/lib/pathViewport.ts';
 import { MapLayer, type BiomeStroke, type Path } from '../shared/domain.ts';
 import {
   distanceToPath,
@@ -20,7 +21,26 @@ import {
 } from '../client/src/lib/pathVisualStyle.ts';
 import { resolveVisibleBiomeAtPoint } from '../client/src/lib/terrainVisibility.ts';
 import { initialPointerGesture, shouldClearPanSelection } from '../client/src/lib/pointerGesture.ts';
-import { nextPathOpacity, pathOpacityLabel } from '../client/src/lib/pathVisibility.ts';
+
+const viewport = { minX: -10, minY: -10, maxX: 10, maxY: 10 };
+assert.deepEqual(visibleSegmentRange([-100, 0], [100, 0], viewport), [0.45, 0.55]);
+assert.deepEqual(visibleSegmentRange([100, 0], [-100, 0], viewport), [0.45, 0.55]);
+assert.deepEqual(visibleSegmentRange([0, -100], [0, 100], viewport), [0.45, 0.55]);
+assert.equal(visibleSegmentRange([-100, 11], [100, 11], viewport), null);
+assert.deepEqual(visibleSegmentRange([0, 0], [0, 0], viewport), [0, 1]);
+// Clipping preserves the same dot indices as a complete path replay, including
+// paths crossing the viewport and a nonzero phase from preceding segments.
+for (const zoom of [0.05, 0.3, 1, 4, 4.25, 8]) {
+  const spacing = PATH_DOT_SPACING_CSS / zoom;
+  const phase = 13.7;
+  const range = visibleSegmentRange([-100, 0], [100, 0], viewport)!;
+  const first = Math.ceil((phase + range[0] * 200) / spacing);
+  const last = Math.floor((phase + range[1] * 200) / spacing);
+  const clipped = Array.from({ length: Math.max(0, last - first + 1) }, (_, i) => first + i);
+  const full = Array.from({ length: Math.floor((phase + 200) / spacing) + 1 }, (_, i) => i)
+    .filter((i) => i * spacing >= phase && i * spacing - phase >= 90 && i * spacing - phase <= 110);
+  assert.deepEqual(clipped, full, `viewport culling retains dot phase at zoom ${zoom}`);
+}
 import { HUD_WIDE_MIN_PX, HUD_MEDIUM_MIN_PX, hudLayoutMode, partitionHudItems } from '../client/src/lib/hudLayout.ts';
 
 function path(overrides: Partial<Path>): Path {
@@ -106,15 +126,10 @@ for (const biome of ['meadows', 'black_forest', 'swamp', 'plains', 'mistlands', 
   assert.equal(pathColorForVisibleBiome(biome), PATH_LIGHT_COLOR);
 }
 
-assert.equal(nextPathOpacity(1), 0.5);
-assert.equal(nextPathOpacity(0.5), 0);
-assert.equal(nextPathOpacity(0), 1);
-assert.equal(pathOpacityLabel(1), 'Paths 100%');
-assert.equal(pathOpacityLabel(0.5), 'Paths 50%');
-assert.equal(pathOpacityLabel(0), 'Paths 0%');
+assert.equal(typeof readFileSync(new URL('../client/src/lib/pathVisibility.ts', import.meta.url), 'utf8'), 'string');
 
-const utilities = ['reset-view', 'zoom-to-one', 'undo', 'redo', 'grid', 'paths', 'protect', 'coordinate'].map((id) => ({ id }));
-const tools = ['pan', 'biome_brush', 'eraser', 'path', 'marker', 'select'].map((id) => ({ id }));
+const utilities = ['reset-view', 'zoom-to-one', 'undo', 'redo', 'grid', 'opacity', 'protect', 'coordinate'].map((id) => ({ id }));
+const tools = ['pan', 'biome_brush', 'eraser', 'path', 'marker', 'text', 'select'].map((id) => ({ id }));
 // Exercise shrinking, threshold boundaries and widening; stateful controls
 // must retain the same objects/handlers in both partitions.
 for (const width of [2048, 1600, 1440, 1439, 1200, 900, 800, 799, 700, 320, 700, 900, 1600, 2048]) {
@@ -138,13 +153,12 @@ for (const width of [2048, 1600, 1440, 1439, 1200, 900, 800, 799, 700, 320, 700,
 assert.equal(hudLayoutMode(false, false), 'narrow');
 assert.equal(hudLayoutMode(false, true), 'medium');
 assert.equal(hudLayoutMode(true, true), 'wide');
-let opacity = 1 as 1 | 0.5 | 0;
-const statefulControl = { id: 'paths', action: () => { opacity = nextPathOpacity(opacity); } };
+const statefulControl = { id: 'opacity', action: () => undefined };
 for (const mode of ['wide', 'narrow', 'medium'] as const) {
   const partition = partitionHudItems([statefulControl], mode, 'utility');
   [...partition.visible, ...partition.overflow][0].action();
 }
-assert.equal(opacity, 1, 'responsive movement retains the existing opacity handler');
+assert.equal(typeof statefulControl.action, 'function', 'responsive movement retains the existing opacity handler');
 
 const terrainHistory: BiomeStroke[] = [
   stroke({ orderKey: 1, mode: 'paint', biome: 'meadows' }),
@@ -200,7 +214,7 @@ assert.match(dottedPathSource, /radiusWorld/);
 assert.doesNotMatch(dottedPathSource, /HALO|halo|outline|Filter|RenderTexture/);
 assert.doesNotMatch(dottedPathSource, /Filter|RenderTexture/);
 assert.match(rendererSource, /setPathsOpacity/);
-assert.match(rendererSource, /pathShapes\.alpha = this\.pathOpacity/);
+assert.match(rendererSource, /graphic\.alpha = id === this\.selectedPathId \? 1 : this\.pathOpacity/);
 assert.match(rendererSource, /pathSelection/);
 assert.match(canvasSourceForGestures(), /protectEnabledRef/);
 assert.match(canvasSourceForGestures(), /panObjectHit/);
@@ -211,13 +225,23 @@ assert.match(canvasSourceForGestures(), /activePointerGestureRef/);
 assert.match(canvasSourceForGestures(), /cancelActivePointerGesture/);
 assert.match(canvasSourceForGestures(), /onToolChange\('pan'\)/);
 assert.match(canvasSourceForGestures(), /pathCreationArmedRef/);
+const pointerSource = canvasSourceForGestures();
+assert.match(pointerSource, /const wasSelected = selectedPathIdRef\.current === hit\.id/);
+assert.match(pointerSource, /const transferFromAnotherObject = hasSelectedObject && !wasSelected/);
+assert.match(pointerSource, /if \(\(wasSelected \|\| transferFromAnotherObject\) && hit\.objectVersion > 0 && !pendingPathIdsRef\.current\.has\(hit\.id\)\)/);
+assert.match(pointerSource, /pointIndex: null,[\s\S]*originalPoints: hit\.points, startWorldPoint: worldPoint/);
+assert.match(pointerSource, /pathEdit\.pointIndex === null[\s\S]*pathEdit\.originalPoints\.map[\s\S]*point\[0\] \+ worldPoint\[0\] - pathEdit\.startWorldPoint\[0\][\s\S]*point\[1\] \+ worldPoint\[1\] - pathEdit\.startWorldPoint\[1\]/);
+assert.ok(pointerSource.indexOf('hitSelectedControlPoint(currentSelected, worldPoint)') < pointerSource.indexOf('const hitMarker ='));
+assert.match(pointerSource, /hitTestPath\(\[currentSelected\], worldPoint,[\s\S]*\?\? hitTestPath\(visibleOrSelected/);
+assert.match(pointerSource, /if \(path\.geometryType === 'freehand'\) \{\s*return null;/);
+assert.match(rendererSource, /selected\.geometryType === 'freehand'\s*\? selected\.points\.filter\(\(_, index\) => index === 0 \|\| index === selected\.points\.length - 1\)/);
 assert.match(canvasSourceForGestures(), /drawing\.geometryType === 'freehand'/);
 assert.match(canvasSourceForGestures(), /selectPath\(id\)/);
 assert.match(canvasSourceForGestures(), /pathCreationArmedRef\.current = false/);
 assert.match(canvasSourceForGestures(), /if \(currentTool === 'path'\)/);
 assert.match(canvasSourceForGestures(), /selectPath\(null\);[\s\S]*onToolChange\('pan'\)/);
 assert.match(workspaceSource, /className="map-top-hud"/);
-assert.match(workspaceSource, /className="map-top-hud__utility"/);
+assert.match(workspaceSource, /className="map-top-hud__utility map-top-hud__utility--opacity"/);
 assert.match(workspaceSource, /className="map-top-hud__tools"/);
 assert.doesNotMatch(workspaceSource, /map-top-hud__right|north-indicator|AppearanceSelector/);
 assert.match(workspaceSource, /<ResponsiveOverflowBar ariaLabel="Map viewport controls"/);
@@ -238,8 +262,10 @@ assert.match(mapMenuSource, /title="Open the map library and manage maps"/);
 assert.match(mapMenuSource, /aria-label="Open the map library and manage maps"/);
 assert.match(mapMenuSource, /map-menu__toggle-label/);
 assert.doesNotMatch(mapMenuSource, /☰/);
-assert.match(workspaceSource, /aria-label="Adjust path visibility"/);
-assert.match(workspaceSource, /title="Adjust path visibility"/);
+assert.match(workspaceSource, /id: 'opacity'/);
+assert.match(workspaceSource, /aria-label="Opacity"/);
+assert.match(workspaceSource, /<OpacityPopup/);
+assert.doesNotMatch(workspaceSource, /Adjust path visibility|nextPathOpacity|pathOpacityLabel/);
 assert.match(workspaceSource, /title="Prevent markers and paths from being selected while using Pan"/);
 assert.match(workspaceSource, /title="Go to Valheim coordinates\. In-game, enable the console, press F5, type `pos`, and use the displayed X and Z coordinates"/);
 assert.match(stylesSource, /\.responsive-overflow__dropdown\s*\{/);

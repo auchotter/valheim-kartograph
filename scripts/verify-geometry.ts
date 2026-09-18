@@ -95,9 +95,21 @@ const zoomedScreenDiameter =
     .x;
 assert.equal(zoomedScreenDiameter, width * 2.5);
 
-for (const zoom of [0.1, 0.25, 0.5, 1, 2, 4, 8]) {
+for (const zoom of [0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8]) {
   const screenSpacing = chooseGridSpacing(zoom) * zoom;
   assert.ok(screenSpacing >= 60 && screenSpacing <= 120, 'grid lines should remain readable');
+}
+
+// The former fallback varied the world interval continuously through the
+// 27–31% camera range and then snapped at 30%. LOD spacing must remain fixed
+// over that range while still staying in the intended readable band.
+assert.deepEqual(
+  [0.27, 0.28, 0.29, 0.30, 0.31].map((zoom) => chooseGridSpacing(zoom)),
+  [250, 250, 250, 250, 250],
+);
+for (const zoom of [0.27, 0.28, 0.29, 0.30, 0.31]) {
+  const screenSpacing = chooseGridSpacing(zoom) * zoom;
+  assert.ok(screenSpacing >= 60 && screenSpacing <= 120, `grid spacing at ${zoom} remains readable`);
 }
 
 const severalHundred = Array.from({ length: 500 }, (_, index) =>

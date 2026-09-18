@@ -6,6 +6,8 @@ export type DebugCoordinateMode = 'cursor' | 'centre';
 
 export interface MapUiPreferences {
   pathOpacity: PathOpacity;
+  markerOpacity: number;
+  textOpacity: number;
   protectEnabled: boolean;
   gridEnabled: boolean;
   debugOpen: boolean;
@@ -14,6 +16,8 @@ export interface MapUiPreferences {
 
 export const DEFAULT_MAP_UI_PREFERENCES: MapUiPreferences = {
   pathOpacity: 1,
+  markerOpacity: 1,
+  textOpacity: 1,
   protectEnabled: true,
   gridEnabled: false,
   debugOpen: false,
@@ -110,7 +114,7 @@ function parseStoredMapUiPreferences(raw: string | null | undefined): MapUiPrefe
       return null;
     }
     if (
-      (value.pathOpacity !== 0 && value.pathOpacity !== 0.5 && value.pathOpacity !== 1) ||
+      !isOpacity(value.pathOpacity) ||
       typeof value.protectEnabled !== 'boolean' ||
       typeof value.gridEnabled !== 'boolean' ||
       (value.debugOpen !== undefined && typeof value.debugOpen !== 'boolean') ||
@@ -118,8 +122,11 @@ function parseStoredMapUiPreferences(raw: string | null | undefined): MapUiPrefe
     ) {
       return null;
     }
+    const pathOpacity = value.pathOpacity;
     return {
-      pathOpacity: value.pathOpacity,
+      pathOpacity,
+      markerOpacity: isOpacity(value.markerOpacity) ? value.markerOpacity : DEFAULT_MAP_UI_PREFERENCES.markerOpacity,
+      textOpacity: isOpacity(value.textOpacity) ? value.textOpacity : pathOpacity,
       protectEnabled: value.protectEnabled,
       gridEnabled: value.gridEnabled,
       debugOpen: value.debugOpen ?? DEFAULT_MAP_UI_PREFERENCES.debugOpen,
@@ -128,6 +135,10 @@ function parseStoredMapUiPreferences(raw: string | null | undefined): MapUiPrefe
   } catch {
     return null;
   }
+}
+
+function isOpacity(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

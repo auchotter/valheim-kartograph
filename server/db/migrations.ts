@@ -247,4 +247,14 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 7,
+    name: 'add_label_reference_zoom',
+    up(database) {
+      database.exec(`
+        ALTER TABLE labels
+          ADD COLUMN reference_zoom REAL NOT NULL DEFAULT 1 CHECK (reference_zoom > 0);
+      `);
+    },
+  },
 ];

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { parsePortableMap, portableContentSchema, portableObject, type PortableContent } from '../../shared/portableMap.js';
 import {
   MapLayer,
   type Marker,
@@ -83,6 +84,38 @@ export class MapService {
 
   getMapRevision(mapId: string): number {
     return this.requireActiveMap(mapId).revision;
+  }
+
+  exportMap(mapId: string): PortableContent {
+    return this.repository.transaction(() => {
+      const map = this.requireActiveMap(mapId);
+      return portableContentSchema.parse({ name: map.name, objects: this.repository.listObjects(mapId)
+        .sort((a, b) => a.orderKey - b.orderKey).map(portableObject) });
+    });
+  }
+
+  importMap(value: unknown): { map: MapRecord; objects: MapObject[] } {
+    const snapshot = parsePortableMap(value);
+    return this.repository.transaction(() => {
+      const source = snapshot.map;
+      let name = source.name;
+      let suffixNumber = 1;
+      while (this.repository.activeMapNameExists(name)) {
+        const suffix = suffixNumber === 1 ? ' (Imported)' : ` (Imported ${suffixNumber})`;
+        name = source.name.slice(0, 200 - suffix.length) + suffix;
+        suffixNumber++;
+      }
+      const now = timestamp();
+      const map: MapRecord = { id: randomUUID(), name, revision: 0,
+        nextOrderKey: source.objects.reduce((next, object) => Math.max(next, object.orderKey + 1), 0),
+        createdAt: now, updatedAt: now, deletedAt: null };
+      // Import is its own baseline, never the blank-map Spawn creation flow.
+      this.repository.insertMap(map);
+      for (const object of source.objects) {
+        this.repository.insertObject(createObjectFromInput(map.id, { ...object, id: randomUUID() }, object.orderKey, now));
+      }
+      return this.getMapState(map.id);
+    });
   }
 
   createMap(input: MapNameInput): MapRecord {
@@ -499,12 +532,16 @@ function updateObjectFromInput(current: MapObject, input: ObjectInput, now: stri
     deletedAt: current.deletedAt,
     ...boundsForInput(input),
   };
-  return mergeSemanticObject(base, input);
+  return mergeSemanticObject(
+    base,
+    input,
+    current.objectType === 'label' ? current.referenceZoom : undefined,
+  );
 }
 
 type ObjectBase = Omit<MapObjectBase, 'objectType' | 'layer'>;
 
-function mergeSemanticObject(base: ObjectBase, input: ObjectInput): MapObject {
+function mergeSemanticObject(base: ObjectBase, input: ObjectInput, currentLabelReferenceZoom = 1): MapObject {
   if (input.objectType === 'biome_stroke') {
     return input.mode === 'paint'
       ? { ...base, objectType: input.objectType, layer: MapLayer.Terrain, mode: input.mode, biome: input.biome!, brushWidth: input.brushWidth, points: input.points }
@@ -543,6 +580,7 @@ function mergeSemanticObject(base: ObjectBase, input: ObjectInput): MapObject {
     y: input.y,
     text: input.text,
     fontSize: input.fontSize,
+    referenceZoom: input.referenceZoom ?? currentLabelReferenceZoom,
     rotationDegrees: input.rotationDegrees,
   };
 }
@@ -608,6 +646,7 @@ function semanticObject(object: MapObject): unknown {
     y: object.y,
     text: object.text,
     fontSize: object.fontSize,
+    referenceZoom: object.referenceZoom,
     rotationDegrees: object.rotationDegrees,
   };
 }

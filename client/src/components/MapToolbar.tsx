@@ -8,6 +8,7 @@ import { MarkerCaptionField } from './MarkerCaptionField';
 import { MAX_LABEL_FONT_SIZE, MIN_LABEL_FONT_SIZE, normaliseLabelText } from '../lib/labelObject';
 
 interface MapToolbarProps {
+  onConfirmSelectedObject: () => Promise<boolean>;
   layoutMode: HudLayoutMode;
   tool: MapTool;
   biome: Biome;
@@ -50,6 +51,7 @@ interface MapToolbarProps {
 }
 
 export function MapToolbar({
+  onConfirmSelectedObject,
   layoutMode,
   tool,
   biome,
@@ -106,7 +108,7 @@ export function MapToolbar({
     toolItem('eraser', 'Eraser', 'E'),
     toolItem('path', 'Path', 'P'),
     toolItem('marker', 'Marker', 'M'),
-    toolItem('text', 'Text'),
+    toolItem('text', 'Text', 'T'),
     toolItem('select', 'Select', 'V'),
   ].map((item) => ({
     ...item,
@@ -144,6 +146,7 @@ export function MapToolbar({
         )}
         {(showsTextCreationControls || showsSelectedLabelControls) && (
           <TextAnnotationControls
+            onConfirmSelectedObject={onConfirmSelectedObject}
             label={selectedLabel}
             disabled={selectedLabelPending}
             draft={selectedLabel === null ? textCreationDraft : labelDraft}
@@ -169,6 +172,7 @@ export function MapToolbar({
         )}
         {selectedMarker !== null && (
           <MarkerCaptionField
+            onConfirm={onConfirmSelectedObject}
             marker={selectedMarker}
             disabled={selectedMarkerPending}
             captionDraft={markerCaptionDraft}
@@ -240,6 +244,7 @@ function VegvisirDirectionControl({
 }
 
 function TextAnnotationControls({
+  onConfirmSelectedObject,
   label,
   disabled,
   draft,
@@ -254,6 +259,7 @@ function TextAnnotationControls({
   onRotationPreview,
   onRotationCommit,
 }: {
+  onConfirmSelectedObject: () => Promise<boolean>;
   label: Label | null;
   disabled: boolean;
   draft: string | undefined;
@@ -333,8 +339,14 @@ function TextAnnotationControls({
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
             event.preventDefault();
-            void commitText();
-            event.currentTarget.blur();
+            event.stopPropagation();
+            if (event.nativeEvent.isComposing || committingRef.current) return;
+            if (label === null) {
+              void commitText();
+            } else {
+              committingRef.current = true;
+              void onConfirmSelectedObject().finally(() => { committingRef.current = false; });
+            }
           } else if (event.key === 'Escape') {
             event.preventDefault();
             event.stopPropagation();

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { type Biome, type Label, type Marker, type PathGeometryType, type WorldPoint } from '../../../shared/domain';
+import { type Biome, type Label, type Marker, type Path, type PathGeometryType, type WorldPoint } from '../../../shared/domain';
 import { MapMenu } from './MapMenu';
 import { MarkerGallery } from './MarkerGallery';
 import { MapToolbar } from './MapToolbar';
@@ -9,18 +9,20 @@ import type { MapTool } from '../state/mapTool';
 import { mapToValheimCoordinates } from '../lib/valheimCoordinates';
 import { CoordinateNavigator } from './CoordinateNavigator';
 import { ResponsiveOverflowBar, type ResponsiveOverflowItem } from './ResponsiveOverflowBar';
+import { OpacityPopup } from './OpacityPopup';
 import { useHudLayout } from '../state/useHudLayout';
 import { clearMarkerInteraction } from '../lib/markerPlacement';
-import { nextPathOpacity, pathOpacityLabel, type PathOpacity } from '../lib/pathVisibility';
+import type { PathOpacity } from '../lib/pathVisibility';
 import { readMapUiPreferences, writeMapUiPreferences, type DebugCoordinateMode } from '../lib/mapUiPreferences';
 import compassRoseUrl from '../assets/ui/compass-rose.png';
-import { isVegvisirMarker, normaliseDirectionDegrees } from '../lib/markerIcons';
+import { isVegvisirMarker, normaliseDirectionDegrees, normaliseMarkerCaption } from '../lib/markerIcons';
 import { markerWithDirection } from '../lib/markerGeometry';
 import { createOptimisticLabel, DEFAULT_LABEL_FONT_SIZE, normaliseLabelRotation, normaliseLabelText } from '../lib/labelObject';
 
 const DEFAULT_BIOME: Biome = 'meadows';
 const DEFAULT_BRUSH_WIDTH = 120;
 type DebugInfoView = 'readout' | 'settings' | 'bug-report';
+const APP_VERSION = 'v1.0';
 const BUG_REPORT_MAILTO = `mailto:valheim-map@adg.one?subject=${encodeURIComponent('Valheim Map - Bug report')}`;
 
 export function MapWorkspace() {
@@ -29,12 +31,15 @@ export function MapWorkspace() {
   const mapSession = useMapSession();
   const [cursorWorld, setCursorWorld] = useState<WorldPoint | null>(null);
   const toolsHudRef = useRef<HTMLDivElement>(null);
+  const opacityButtonRef = useRef<HTMLButtonElement>(null);
   const [tool, setTool] = useState<MapTool>('pan');
   const [biome, setBiome] = useState<Biome>(DEFAULT_BIOME);
   const [brushWidth, setBrushWidth] = useState(DEFAULT_BRUSH_WIDTH);
   const [initialUiPreferences] = useState(() => readMapUiPreferences());
   const [gridVisible, setGridVisible] = useState(initialUiPreferences.gridEnabled);
   const [pathOpacity, setPathOpacity] = useState<PathOpacity>(initialUiPreferences.pathOpacity);
+  const [markerOpacity, setMarkerOpacity] = useState(initialUiPreferences.markerOpacity);
+  const [textOpacity, setTextOpacity] = useState(initialUiPreferences.textOpacity);
   const [protectEnabled, setProtectEnabled] = useState(initialUiPreferences.protectEnabled);
   const [pathGeometryType, setPathGeometryType] = useState<PathGeometryType>('freehand');
   const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
@@ -50,6 +55,7 @@ export function MapWorkspace() {
   const [textCreationSize, setTextCreationSize] = useState(DEFAULT_LABEL_FONT_SIZE);
   const [markerGalleryOpen, setMarkerGalleryOpen] = useState(false);
   const [coordinateNavigatorOpen, setCoordinateNavigatorOpen] = useState(false);
+  const [opacityPopupOpen, setOpacityPopupOpen] = useState(false);
   const [coordinateNavigatorAnchor, setCoordinateNavigatorAnchor] = useState<DOMRectReadOnly | null>(null);
   const [debugInfoOpen, setDebugInfoOpen] = useState(initialUiPreferences.debugOpen);
   const [debugInfoView, setDebugInfoView] = useState<DebugInfoView>('readout');
@@ -59,6 +65,9 @@ export function MapWorkspace() {
   const labelPreviewRef = useRef<Label | null>(null);
   const textCreationCommitPromiseRef = useRef<Promise<Label | null> | null>(null);
   const labelCommitPromisesRef = useRef(new Map<string, Promise<boolean>>());
+  const markerCommitPromisesRef = useRef(new Map<string, Promise<boolean>>());
+  const pathCommitPromisesRef = useRef(new Map<string, Promise<boolean>>());
+  const confirmationInFlightRef = useRef(false);
   const textCreationConfirmInFlightRef = useRef(false);
 
   const setLabelPreviewState = useCallback((preview: Label | null) => {
@@ -69,12 +78,14 @@ export function MapWorkspace() {
   useEffect(() => {
     writeMapUiPreferences({
       pathOpacity,
+      markerOpacity,
+      textOpacity,
       protectEnabled,
       gridEnabled: gridVisible,
       debugOpen: debugInfoOpen,
       debugCoordinateMode,
     });
-  }, [debugCoordinateMode, debugInfoOpen, gridVisible, pathOpacity, protectEnabled]);
+  }, [debugCoordinateMode, debugInfoOpen, gridVisible, markerOpacity, pathOpacity, protectEnabled, textOpacity]);
 
   const closeDebugInfo = useCallback(() => {
     setDebugInfoOpen(false);
@@ -85,16 +96,25 @@ export function MapWorkspace() {
     if (!debugInfoOpen) return undefined;
 
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-
-      event.preventDefault();
-      event.stopPropagation();
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      // A transient popup owns its own Escape before the persistent Debug
+      // shell. Debug never turns that key into an outer-shell close.
+      if (opacityPopupOpen || markerGalleryOpen || coordinateNavigatorOpen || document.querySelector('[role="listbox"]')) return;
       if (debugInfoView === 'bug-report') {
+        event.preventDefault();
+        event.stopPropagation();
         setDebugInfoView('settings');
       } else if (debugInfoView === 'settings') {
+        event.preventDefault();
+        event.stopPropagation();
         setDebugInfoView('readout');
-      } else {
-        closeDebugInfo();
+      } else if (selectedMarkerId === null && selectedPathId === null && selectedLabelId === null) {
+        // Keep the persistent Debug shell open, but consume Escape when there
+        // is no selected map object for the canvas to dismiss. If an object is
+        // selected, let the app-level canvas fallback deselect it and switch
+        // to Pan without collapsing Debug.
+        event.preventDefault();
+        event.stopPropagation();
       }
     };
 
@@ -102,7 +122,7 @@ export function MapWorkspace() {
     return () => {
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [closeDebugInfo, debugInfoOpen, debugInfoView]);
+  }, [coordinateNavigatorOpen, debugInfoOpen, debugInfoView, markerGalleryOpen, opacityPopupOpen, selectedLabelId, selectedMarkerId, selectedPathId]);
 
   useEffect(() => {
     const cleared = clearMarkerInteraction();
@@ -214,11 +234,30 @@ export function MapWorkspace() {
 
   const updateMarker = useCallback(
     async (marker: Marker): Promise<boolean> => {
+      const pending = markerCommitPromisesRef.current.get(marker.id);
+      if (pending) return pending;
       setMarkerPreview(null);
-      return mapSession.saveMarkerUpdate(marker);
+      const promise = mapSession.saveMarkerUpdate(marker);
+      markerCommitPromisesRef.current.set(marker.id, promise);
+      try {
+        const saved = await promise;
+        if (!saved) setMarkerPreview(marker);
+        return saved;
+      } finally {
+        markerCommitPromisesRef.current.delete(marker.id);
+      }
     },
     [mapSession.saveMarkerUpdate],
   );
+
+  const updatePath = useCallback(async (path: Path): Promise<boolean> => {
+    const pending = pathCommitPromisesRef.current.get(path.id);
+    if (pending) return pending;
+    const promise = mapSession.savePathUpdate(path);
+    pathCommitPromisesRef.current.set(path.id, promise);
+    try { return await promise; }
+    finally { pathCommitPromisesRef.current.delete(path.id); }
+  }, [mapSession.savePathUpdate]);
 
   const updateMarkerCaptionDraft = useCallback((markerId: string, draft: string | null) => {
     setMarkerCaptionDrafts((current) => {
@@ -289,9 +328,41 @@ export function MapWorkspace() {
       y: position[1],
       text,
       fontSize: textCreationSize,
+      referenceZoom: mapSession.camera.zoom,
       rotationDegrees: 0,
     }));
-  }, [mapSession.camera.cameraX, mapSession.camera.cameraY, mapSession.currentMap, setLabelPreviewState, textCreationPosition, textCreationSize]);
+  }, [mapSession.camera.cameraX, mapSession.camera.cameraY, mapSession.camera.zoom, mapSession.currentMap, setLabelPreviewState, textCreationPosition, textCreationSize]);
+
+  // A draft is authored at the current zoom. Keep that temporary anchor in
+  // sync while zooming so committing at the latest zoom cannot cause a jump.
+  useEffect(() => {
+    const text = normaliseLabelText(textCreationDraft);
+    const map = mapSession.currentMap;
+    if (tool !== 'text' || selectedLabelId !== null || text === null || map === null) return;
+    const position = textCreationPosition ?? [mapSession.camera.cameraX, mapSession.camera.cameraY] as WorldPoint;
+    if (textCreationPosition === null) setTextCreationPosition(position);
+    setLabelPreviewState(createOptimisticLabel({
+      id: 'text-draft',
+      mapId: map.id,
+      x: position[0],
+      y: position[1],
+      text,
+      fontSize: textCreationSize,
+      referenceZoom: mapSession.camera.zoom,
+      rotationDegrees: 0,
+    }));
+  }, [
+    mapSession.camera.cameraX,
+    mapSession.camera.cameraY,
+    mapSession.camera.zoom,
+    mapSession.currentMap,
+    selectedLabelId,
+    setLabelPreviewState,
+    textCreationDraft,
+    textCreationPosition,
+    textCreationSize,
+    tool,
+  ]);
 
   const commitTextCreation = useCallback(async (): Promise<Label | null> => {
     if (textCreationCommitPromiseRef.current !== null) {
@@ -303,7 +374,15 @@ export function MapWorkspace() {
       if (text === null || map === null) return null;
       const position = textCreationPosition ?? [mapSession.camera.cameraX, mapSession.camera.cameraY] as WorldPoint;
       const id = crypto.randomUUID();
-      const saved = await mapSession.saveLabel({ id, x: position[0], y: position[1], text, fontSize: textCreationSize, rotationDegrees: 0 });
+      const saved = await mapSession.saveLabel({
+        id,
+        x: position[0],
+        y: position[1],
+        text,
+        fontSize: textCreationSize,
+        referenceZoom: mapSession.camera.zoom,
+        rotationDegrees: 0,
+      });
       if (saved === null) return null;
       setTextCreationDraft('');
       setTextCreationPosition(null);
@@ -311,7 +390,7 @@ export function MapWorkspace() {
       // until the labels collection catches up. This makes the newly-created
       // object immediately hit-testable/draggable after Enter.
       setLabelPreviewState(saved);
-      setSelectedLabelId(saved.id);
+      selectLabel(saved.id);
       return saved;
     })();
     textCreationCommitPromiseRef.current = commitPromise;
@@ -324,7 +403,7 @@ export function MapWorkspace() {
       },
     );
     return commitPromise;
-  }, [mapSession, setLabelPreviewState, textCreationDraft, textCreationPosition, textCreationSize]);
+  }, [mapSession, selectLabel, setLabelPreviewState, textCreationDraft, textCreationPosition, textCreationSize]);
 
   const confirmTextCreationFromMap = useCallback(async (): Promise<void> => {
     if (textCreationConfirmInFlightRef.current) return;
@@ -372,6 +451,12 @@ export function MapWorkspace() {
       enterNeutralPan();
       return true;
     }
+    const pending = labelCommitPromisesRef.current.get(selectedLabel.id);
+    if (pending !== undefined) {
+      if (!(await pending)) return false;
+      enterNeutralPan();
+      return true;
+    }
     const preview = labelPreviewRef.current?.id === selectedLabel.id ? labelPreviewRef.current : selectedLabel;
     const draftText = labelDrafts[selectedLabel.id];
     const nextText = draftText === undefined ? preview.text : normaliseLabelText(draftText) ?? selectedLabel.text;
@@ -379,6 +464,7 @@ export function MapWorkspace() {
     const changed =
       draft.text !== selectedLabel.text ||
       draft.fontSize !== selectedLabel.fontSize ||
+      draft.referenceZoom !== selectedLabel.referenceZoom ||
       draft.rotationDegrees !== selectedLabel.rotationDegrees;
     if (!changed) {
       enterNeutralPan();
@@ -407,15 +493,15 @@ export function MapWorkspace() {
       if (textCreationDraft.length > 0) updateTextCreationDraft(textCreationDraft);
       return;
     }
-    setLabelPreviewState({ ...selectedLabel, fontSize });
-  }, [selectedLabel, setLabelPreviewState, textCreationDraft, updateTextCreationDraft]);
+    setLabelPreviewState({ ...selectedLabel, fontSize, referenceZoom: mapSession.camera.zoom });
+  }, [mapSession.camera.zoom, selectedLabel, setLabelPreviewState, textCreationDraft, updateTextCreationDraft]);
 
   const commitLabelSize = useCallback(() => {
     const preview = labelPreviewRef.current;
     if (selectedLabel !== null && preview !== null && preview.id === selectedLabel.id && preview.fontSize !== selectedLabel.fontSize) {
-      void updateLabel(preview);
+      void updateLabel({ ...preview, referenceZoom: mapSession.camera.zoom });
     }
-  }, [selectedLabel, updateLabel]);
+  }, [mapSession.camera.zoom, selectedLabel, updateLabel]);
 
   const previewLabelRotation = useCallback((rotationDegrees: number) => {
     if (selectedLabel === null) return;
@@ -461,6 +547,45 @@ export function MapWorkspace() {
       void updateMarker(draft);
     }
   }, [selectedMarker, updateMarker]);
+
+  // All selected-object Enter actions await the same logical save. The key
+  // owner prevents native activation of a previously focused HUD button.
+  const confirmSelectedObject = useCallback(async (): Promise<boolean> => {
+    if (confirmationInFlightRef.current) return false;
+    confirmationInFlightRef.current = true;
+    let confirmed = false;
+    try {
+      if (!(await (canvasRef.current?.finishSelectedGesture() ?? Promise.resolve(true)))) return false;
+      if (selectedLabel !== null) {
+        confirmed = await commitSelectedLabelAndExit();
+        return confirmed;
+      }
+      if (selectedMarker !== null) {
+        const pending = markerCommitPromisesRef.current.get(selectedMarker.id);
+        if (pending === undefined && mapSession.pendingMarkerIds.has(selectedMarker.id)) return false;
+        if (pending !== undefined) {
+          if (!(await pending)) return false;
+        } else {
+          const preview = markerPreview?.id === selectedMarker.id ? markerPreview : selectedMarker;
+          const name = normaliseMarkerCaption(markerCaptionDrafts[selectedMarker.id] ?? preview.name ?? '');
+          const draft = { ...preview, name };
+          if ((draft.name !== selectedMarker.name || draft.directionDegrees !== selectedMarker.directionDegrees) && !(await updateMarker(draft))) return false;
+        }
+        updateMarkerCaptionDraft(selectedMarker.id, null);
+      }
+      if (selectedPathId !== null) {
+        const pending = pathCommitPromisesRef.current.get(selectedPathId);
+        if (pending === undefined && mapSession.pendingPathIds.has(selectedPathId)) return false;
+        if (pending !== undefined && !(await pending)) return false;
+      }
+      enterNeutralPan();
+      confirmed = true;
+      return true;
+    } finally {
+      if (confirmed) canvasRef.current?.focus();
+      confirmationInFlightRef.current = false;
+    }
+  }, [commitSelectedLabelAndExit, enterNeutralPan, markerCaptionDrafts, markerPreview, selectedLabel, selectedMarker, selectedPathId, updateMarker, updateMarkerCaptionDraft, mapSession.pendingMarkerIds, mapSession.pendingPathIds]);
   const cursorValheim = cursorWorld === null ? null : mapToValheimCoordinates(cursorWorld[0], cursorWorld[1]);
   const centreValheim = mapToValheimCoordinates(mapSession.camera.cameraX, mapSession.camera.cameraY);
   const debugValheim = debugCoordinateMode === 'cursor' ? cursorValheim : centreValheim;
@@ -526,6 +651,18 @@ export function MapWorkspace() {
           onRenameMap={mapSession.renameExistingMap}
           onDuplicateMap={mapSession.duplicateAndSelectMap}
           onDeleteMap={mapSession.deleteExistingMap}
+          workspace={{ markerOpacity, pathOpacity, textOpacity, gridEnabled: gridVisible, protectEnabled, camera: mapSession.camera }}
+          onImportMap={async snapshot => {
+            const result = await mapSession.importAndSelectMap(snapshot);
+            if (result.ok) {
+              setMarkerOpacity(snapshot.workspace.markerOpacity);
+              setPathOpacity(snapshot.workspace.pathOpacity);
+              setTextOpacity(snapshot.workspace.textOpacity);
+              setGridVisible(snapshot.workspace.gridEnabled);
+              setProtectEnabled(snapshot.workspace.protectEnabled);
+            }
+            return result;
+          }}
         />
       ),
     },
@@ -570,16 +707,20 @@ export function MapWorkspace() {
       ),
     },
     {
-      id: 'paths',
+      id: 'opacity',
       render: ({ closeOverflow }) => (
         <button
           type="button"
           className="utility-control"
-          aria-label="Adjust path visibility"
-          title="Adjust path visibility"
-          onClick={() => { setPathOpacity((opacity) => nextPathOpacity(opacity)); closeOverflow(); }}
+          aria-label="Opacity"
+          ref={opacityButtonRef}
+          aria-pressed={opacityPopupOpen}
+          title="Opacity"
+          aria-expanded={opacityPopupOpen}
+          aria-haspopup="dialog"
+          onClick={() => { setOpacityPopupOpen((open) => !open); closeOverflow(); }}
         >
-          {pathOpacityLabel(pathOpacity)}
+          Opacity
         </button>
       ),
     },
@@ -635,7 +776,18 @@ export function MapWorkspace() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isTypingTarget(event.target)) {
+      if (event.defaultPrevented || isTypingTarget(event.target) || (event.target instanceof Element && event.target.closest('[role="dialog"], [role="listbox"]'))) {
+        return;
+      }
+
+      // Disabling an input while saving can move browser focus to body. The
+      // selected-object confirmation must still work there, including retry.
+      if (event.key === 'Enter' && !event.isComposing && !event.metaKey && !event.ctrlKey && !event.altKey &&
+          (selectedLabelId !== null || selectedMarkerId !== null || selectedPathId !== null) &&
+          !(event.target instanceof Element && event.target.closest('.debug-info'))) {
+        event.preventDefault();
+        event.stopPropagation();
+        void confirmSelectedObject();
         return;
       }
 
@@ -675,6 +827,10 @@ export function MapWorkspace() {
         case 'm':
           changeTool('marker');
           break;
+        case 't':
+          event.preventDefault();
+          changeTool(tool === 'text' ? 'pan' : 'text');
+          break;
         default:
           break;
       }
@@ -682,10 +838,19 @@ export function MapWorkspace() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [changeTool, requestRedo, requestUndo]);
+  }, [changeTool, confirmSelectedObject, requestRedo, requestUndo, selectedLabelId, selectedMarkerId, selectedPathId, tool]);
 
   return (
-    <main className="map-workspace" data-ui-mode="immersive">
+    <main className="map-workspace" data-ui-mode="immersive" onKeyDown={(event) => {
+      if (event.defaultPrevented || event.nativeEvent.isComposing || event.key !== 'Enter') return;
+      const target = event.target;
+      if (target instanceof Element && target.closest('[role="dialog"], [role="listbox"], .debug-info')) return;
+      if (isTypingTarget(target) && !(target instanceof Element && target.closest('.tool-context-panel'))) return;
+      if (selectedLabelId === null && selectedMarkerId === null && selectedPathId === null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void confirmSelectedObject();
+    }}>
       <MapCanvas
         ref={canvasRef}
         camera={mapSession.camera}
@@ -700,6 +865,8 @@ export function MapWorkspace() {
         pendingMarkerIds={mapSession.pendingMarkerIds}
         pendingLabelIds={mapSession.pendingLabelIds}
         pathOpacity={pathOpacity}
+        markerOpacity={markerOpacity}
+        textOpacity={textOpacity}
         protectEnabled={protectEnabled}
         pathGeometryType={pathGeometryType}
         armedMarkerType={armedMarkerType}
@@ -716,19 +883,19 @@ export function MapWorkspace() {
         onCursorWorldChange={setCursorWorld}
         onStrokeComplete={mapSession.saveStroke}
         onPathComplete={mapSession.savePath}
-        onPathUpdate={mapSession.savePathUpdate}
+        onPathUpdate={updatePath}
         onPathDelete={mapSession.removePath}
         onPathSelectionChange={selectPath}
         onMarkerComplete={mapSession.saveMarker}
         onMarkerUpdate={updateMarker}
         onMarkerDelete={deleteMarker}
         onMarkerSelectionChange={selectMarker}
-        onLabelUpdate={(label) => { void updateLabel(label); }}
+        onLabelUpdate={updateLabel}
         onLabelDelete={deleteLabel}
         onLabelSelectionChange={selectLabel}
         onTextCreationMapConfirm={confirmTextCreationFromMap}
         onTextCreationPointerDown={commitTextCreation}
-        onTextMapClickAway={commitSelectedLabelAndExit}
+        onSelectedObjectMapClickAway={confirmSelectedObject}
         onMarkerPlacementDisarm={disarmMarkerPlacement}
         onToolChange={changeTool}
         onObjectToolChange={activateObjectTool}
@@ -744,12 +911,25 @@ export function MapWorkspace() {
       />
 
       <div className="map-top-hud" data-layout-mode={layoutMode}>
-        <div className="map-top-hud__utility">
+        <div className="map-top-hud__utility map-top-hud__utility--opacity">
           <ResponsiveOverflowBar ariaLabel="Map viewport controls" className="map-controls" items={utilityItems} mode={layoutMode} group="utility" />
+          <OpacityPopup
+            open={opacityPopupOpen}
+            anchorRef={opacityButtonRef}
+            anchorLayout={`${layoutMode}:${mapSession.currentMap?.name ?? ''}`}
+            markerOpacity={markerOpacity}
+            pathOpacity={pathOpacity}
+            textOpacity={textOpacity}
+            onMarkerOpacityChange={setMarkerOpacity}
+            onPathOpacityChange={setPathOpacity}
+            onTextOpacityChange={setTextOpacity}
+            onClose={() => setOpacityPopupOpen(false)}
+          />
         </div>
 
         <div ref={toolsHudRef} className="map-top-hud__tools">
           <MapToolbar
+            onConfirmSelectedObject={confirmSelectedObject}
             layoutMode={layoutMode}
             tool={tool}
             biome={biome}
@@ -782,7 +962,10 @@ export function MapWorkspace() {
             onMarkerUpdate={updateMarker}
             onTextCreationDraftChange={updateTextCreationDraft}
             onTextCreationCommit={commitTextCreation}
-            onTextCreationCancel={cancelTextCreation}
+            onTextCreationCancel={() => {
+              if (textCreationDraft.trim() === '') enterNeutralPan();
+              else cancelTextCreation();
+            }}
             onLabelDraftChange={updateLabelDraft}
             onLabelUpdate={updateLabel}
             onLabelSizePreview={previewLabelSize}
@@ -919,7 +1102,10 @@ export function MapWorkspace() {
                   </div>
                 </div>
                 <div className="debug-info__coordinate-line"><span>X:</span><span>{formatCoordinate(debugValheim?.x)}</span></div>
-                <div className="debug-info__coordinate-line"><span>Z:</span><span>{formatCoordinate(debugValheim?.z)}</span></div>
+                <div className="debug-info__coordinate-line debug-info__coordinate-line--versioned">
+                  <span className="debug-info__coordinate-leading"><span>Z:</span><span>{formatCoordinate(debugValheim?.z)}</span></span>
+                  <span className="debug-info__version" aria-hidden="true">{APP_VERSION}</span>
+                </div>
               </div>
             )}
           </section>

@@ -44,6 +44,18 @@ try {
   assert.equal(redoUpdate.json.redone, true);
   assert.deepEqual((await state(map.id)).objects.find((object: any) => object.id === updated.id)?.x, 30);
 
+  const anchoredLabel = labelObject(13, 24, 0.79);
+  await createObject(map.id, actorA, anchoredLabel);
+  await updateObject(map.id, actorA, { ...anchoredLabel, fontSize: 36, referenceZoom: 1.5 }, 1);
+  await undo(map.id, actorA);
+  const redoLabelResize = await redo(map.id, actorA, id(clientNumber++));
+  assert.equal(redoLabelResize.json.redone, true);
+  const labelAfterRedo = (await state(map.id)).objects.find((object: any) => object.id === anchoredLabel.id);
+  assert.deepEqual(
+    { fontSize: labelAfterRedo.fontSize, referenceZoom: labelAfterRedo.referenceZoom },
+    { fontSize: 36, referenceZoom: 1.5 },
+  );
+
   const deleted = markerObject(12, 5, 6);
   await createObject(map.id, actorA, deleted);
   await request('DELETE', `/api/maps/${map.id}/objects/${deleted.id}`, lifecycle(actorA, 1));
@@ -161,6 +173,13 @@ function markerObject(number: number, x: number, y: number) {
     note: null,
     sizeScale: 1,
     directionDegrees: null,
+  };
+}
+
+function labelObject(number: number, fontSize: number, referenceZoom: number) {
+  return {
+    id: id(number), objectType: 'label', x: 0, y: 0, text: 'Anchored text',
+    fontSize, referenceZoom, rotationDegrees: 0,
   };
 }
 

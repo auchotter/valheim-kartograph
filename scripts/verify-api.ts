@@ -153,11 +153,34 @@ try {
   const label = await request(
     'POST',
     `/api/maps/${map.id}/objects`,
-    mutation({ id: id(9), objectType: 'label', x: -1, y: -2, text: 'North gate', fontSize: 18, rotationDegrees: 45 }),
+    mutation({
+      id: id(9),
+      objectType: 'label',
+      x: -1,
+      y: -2,
+      text: 'North gate',
+      fontSize: 18,
+      referenceZoom: 0.79,
+      rotationDegrees: 45,
+    }),
   );
   assert.equal(label.statusCode, 201);
   assert.equal(label.json.object.layer, 300);
+  assert.equal(label.json.object.referenceZoom, 0.79);
   assert.equal(label.json.object.rotationDegrees, 45);
+  for (const referenceZoom of [0, -1, Number.POSITIVE_INFINITY, 8.01]) {
+    const invalid = await request(
+      'POST',
+      `/api/maps/${map.id}/objects`,
+      mutation({
+        id: crypto.randomUUID(), objectType: 'label', x: 0, y: 0,
+        text: 'Invalid zoom', fontSize: 18, referenceZoom, rotationDegrees: 0,
+      }),
+    );
+    assert.equal(invalid.statusCode, 400);
+  }
+  // Older clients may omit the new field during an unrelated edit; retain the
+  // established reference zoom rather than silently re-anchoring the label.
   const updatedLabel = await request(
     'PUT',
     `/api/maps/${map.id}/objects/${id(9)}`,
@@ -169,17 +192,51 @@ try {
     { minX: 3, minY: -2, maxX: 3, maxY: -2 },
   );
   assert.equal(updatedLabel.json.object.rotationDegrees, 90);
+  assert.equal(updatedLabel.json.object.referenceZoom, 0.79);
+  const resizedLabel = await request(
+    'PUT',
+    `/api/maps/${map.id}/objects/${id(9)}`,
+    mutation(
+      {
+        id: id(9),
+        objectType: 'label',
+        x: 3,
+        y: -2,
+        text: 'North gate',
+        fontSize: 30,
+        referenceZoom: 1.5,
+        rotationDegrees: 90,
+      },
+      { baseObjectVersion: 2 },
+    ),
+  );
+  assert.equal(resizedLabel.statusCode, 200);
+  assert.equal(resizedLabel.json.object.fontSize, 30);
+  assert.equal(resizedLabel.json.object.referenceZoom, 1.5);
+  const resizeOperation = database
+    .prepare("SELECT payload_json FROM map_operations WHERE map_id = ? AND object_id = ? AND operation_type = 'object.update' ORDER BY map_revision DESC LIMIT 1")
+    .get(map.id, id(9)) as { payload_json: string };
+  assert.deepEqual(
+    (({ before, after }) => ({
+      before: { fontSize: before.fontSize, referenceZoom: before.referenceZoom },
+      after: { fontSize: after.fontSize, referenceZoom: after.referenceZoom },
+    }))(JSON.parse(resizeOperation.payload_json)),
+    {
+      before: { fontSize: 24, referenceZoom: 0.79 },
+      after: { fontSize: 30, referenceZoom: 1.5 },
+    },
+  );
   const deletedLabel = await request(
     'DELETE',
     `/api/maps/${map.id}/objects/${id(9)}`,
-    mutation(null, { baseObjectVersion: 2 }),
+    mutation(null, { baseObjectVersion: 3 }),
   );
   assert.equal(deletedLabel.statusCode, 200);
   assert.notEqual(deletedLabel.json.object.deletedAt, null);
   const restoredLabel = await request(
     'POST',
     `/api/maps/${map.id}/objects/${id(9)}/restore`,
-    mutation(null, { baseObjectVersion: 3 }),
+    mutation(null, { baseObjectVersion: 4 }),
   );
   assert.equal(restoredLabel.statusCode, 200);
   assert.equal(restoredLabel.json.object.deletedAt, null);
@@ -224,8 +281,9 @@ try {
   assert.equal(duplicateState.json.objects.length, loadedState.json.objects.length);
   assert.equal(
     duplicateState.json.objects.some(
-      (object: { objectType: string; text?: string; rotationDegrees?: number }) =>
-        object.objectType === 'label' && object.text === 'North gate' && object.rotationDegrees === 90,
+      (object: { objectType: string; text?: string; referenceZoom?: number; rotationDegrees?: number }) =>
+        object.objectType === 'label' && object.text === 'North gate' &&
+        object.referenceZoom === 1.5 && object.rotationDegrees === 90,
     ),
     true,
   );

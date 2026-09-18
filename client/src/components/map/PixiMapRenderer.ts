@@ -15,6 +15,7 @@ import { mapVisualTheme } from '../../lib/mapVisualTheme';
 import { destroyParchmentTextures, parchmentTextures } from '../../lib/parchmentTextures';
 import { chooseGridSpacing } from '../../lib/grid';
 import { pathPolyline } from '../../lib/pathGeometry';
+import { visibleSegmentRange, type PathViewport } from '../../lib/pathViewport';
 import { isVegvisirMarker, normaliseDirectionDegrees } from '../../lib/markerIcons';
 import { loadMarkerTexture, markerTexture } from '../../lib/markerTextures';
 import {
@@ -30,7 +31,7 @@ import {
   markerRootWorldScale,
   markerVisualDiameterCss,
 } from '../../lib/markerGeometry';
-import { labelVisualSize } from '../../lib/labelGeometry';
+import { isLabelVisibleAtZoom, labelVisualSize, labelWorldScale } from '../../lib/labelGeometry';
 import {
   loadMarkerCaptionFont,
   MARKER_CAPTION_FONT_FALLBACK,
@@ -148,7 +149,10 @@ export class PixiMapRenderer {
   private selectedPathId: string | null = null;
   private pathEditPreview: Path | null = null;
   private pathOpacity = 1;
+  private markerOpacity = 1;
+  private textOpacity = 1;
   private renderedPathZoom: number | null = null;
+  private pathsDirty = false;
   private selectedMarkerId: string | null = null;
   private hoveredMarkerId: string | null = null;
   private markerEditPreview: Marker | null = null;
@@ -262,13 +266,14 @@ export class PixiMapRenderer {
       return;
     }
 
+    if (this.camera?.zoom === camera.zoom && this.camera.cameraX === camera.cameraX && this.camera.cameraY === camera.cameraY) return;
     const zoomChanged = this.camera?.zoom !== camera.zoom;
     this.camera = camera;
     this.applyCameraTransform();
-    // Paths themselves follow the camera container. Rebuild only to preserve
-    // dot and handle dimensions in screen pixels after a zoom change.
+    this.pathsDirty = true;
+    // Retained marker/text transforms update immediately. Path dot geometry
+    // is clipped and coalesced into the next existing presentation frame.
     if (zoomChanged) {
-      this.rebuildPaths();
       this.updateMarkerVisualScales();
       this.rebuildMarkerSelection();
       this.updateLabelVisualScales();
@@ -318,19 +323,44 @@ export class PixiMapRenderer {
 
   setPathsOpacity(opacity: number): void {
     this.pathOpacity = Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : 1;
-    this.pathShapes.alpha = this.pathOpacity;
-    this.pathEdit.alpha = this.pathOpacity;
     this.pathPreview.alpha = this.pathOpacity;
-    this.textLabels.alpha = this.pathOpacity;
-    this.labelEdit.alpha = this.pathOpacity;
+    this.updateObjectOpacities();
+    this.pathsDirty = true;
     if (this.initialized) {
       this.rebuildPathSelection();
     }
     this.requestStageRender();
   }
 
+  setMarkerOpacity(opacity: number): void {
+    this.markerOpacity = Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : 1;
+    this.markerPlacement.alpha = this.markerOpacity;
+    this.updateObjectOpacities();
+    this.requestStageRender();
+  }
+
+  setTextOpacity(opacity: number): void {
+    this.textOpacity = Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : 1;
+    this.updateObjectOpacities();
+    this.requestStageRender();
+  }
+
+  /** Alpha belongs to each object, so exactly one selection can override it. */
+  private updateObjectOpacities(): void {
+    for (const [id, graphic] of this.pathGraphics) graphic.alpha = id === this.selectedPathId ? 1 : this.pathOpacity;
+    this.pathEdit.alpha = this.pathEditPreview?.id === this.selectedPathId ? 1 : this.pathOpacity;
+    for (const [id, node] of this.markerNodes) node.alpha = id === this.selectedMarkerId ? 1 : this.markerOpacity;
+    for (const [id, caption] of this.markerCaptionNodes) caption.alpha = id === this.selectedMarkerId ? 1 : this.markerOpacity;
+    this.markerEdit.alpha = this.markerEditPreview?.id === this.selectedMarkerId ? 1 : this.markerOpacity;
+    this.markerEditCaption.alpha = this.markerEdit.alpha;
+    for (const [id, node] of this.labelNodes) node.alpha = id === this.selectedLabelId ? 1 : this.textOpacity;
+    this.labelEdit.alpha = this.labelEditPreview?.id === this.selectedLabelId ? 1 : this.textOpacity;
+  }
+
   setSelectedPath(pathId: string | null): void {
     this.selectedPathId = pathId;
+    this.updateObjectOpacities();
+    this.pathsDirty = true;
     if (this.initialized) {
       this.rebuildPathSelection();
     }
@@ -372,6 +402,7 @@ export class PixiMapRenderer {
 
   setSelectedLabel(labelId: string | null): void {
     this.selectedLabelId = labelId;
+    this.updateObjectOpacities();
     if (this.initialized) {
       this.rebuildLabelSelection();
     }
@@ -619,6 +650,7 @@ export class PixiMapRenderer {
     this.applyImmersiveLayerTransforms(positionX, positionY, zoom);
     this.gridWorld.scale.set(zoom);
     this.gridWorld.position.set(positionX, positionY);
+    this.pathsDirty = true;
     this.rebuildGrid();
     this.redrawBrushCursor();
     this.scheduleTerrainRender();
@@ -747,16 +779,25 @@ export class PixiMapRenderer {
 
   /** Rebuilds direct Paths-layer display objects only; terrain is untouched. */
   private rebuildPaths(): void {
-    destroyChildren(this.pathShapes);
-    this.pathGraphics.clear();
+    this.pathsDirty = false;
+    const activeIds = new Set(this.pathObjects.filter((path) => path.deletedAt === null).map((path) => path.id));
+    for (const [id, graphic] of this.pathGraphics) {
+      if (!activeIds.has(id)) {
+        graphic.destroy();
+        this.pathGraphics.delete(id);
+      }
+    }
     this.renderedPathZoom = this.camera?.zoom ?? 1;
     const ordered = [...this.pathObjects]
       .filter((path) => path.deletedAt === null)
       .sort((left, right) => left.layer - right.layer || left.orderKey - right.orderKey);
 
     for (const path of ordered) {
-      const graphic = new Graphics();
-      drawDottedPath(graphic, path, this.renderedPathZoom, this.strokes, undefined, 0.92, false);
+      const graphic = this.pathGraphics.get(path.id) ?? new Graphics();
+      graphic.clear();
+      if (this.pathOpacity > 0 || path.id === this.selectedPathId) {
+        drawDottedPath(graphic, path, this.renderedPathZoom, this.strokes, undefined, 0.92, false, this.pathViewport());
+      }
       this.pathShapes.addChild(graphic);
       this.pathGraphics.set(path.id, graphic);
     }
@@ -767,6 +808,7 @@ export class PixiMapRenderer {
 
   private rebuildPathEditPreview(): void {
     destroyChildren(this.pathEdit);
+    this.updateObjectOpacities();
     for (const graphic of this.pathGraphics.values()) {
       graphic.visible = true;
     }
@@ -778,7 +820,7 @@ export class PixiMapRenderer {
       original.visible = false;
     }
     const graphic = new Graphics();
-    drawDottedPath(graphic, this.pathEditPreview, this.camera?.zoom ?? 1, this.strokes, undefined, 0.92, false);
+    drawDottedPath(graphic, this.pathEditPreview, this.camera?.zoom ?? 1, this.strokes, undefined, 0.92, false, this.pathViewport());
     this.pathEdit.addChild(graphic);
   }
 
@@ -788,7 +830,7 @@ export class PixiMapRenderer {
       return;
     }
     const graphic = new Graphics();
-    drawDottedPath(graphic, this.activePathPreview, this.camera?.zoom ?? 1, this.strokes, undefined, 0.62, false);
+    drawDottedPath(graphic, this.activePathPreview, this.camera?.zoom ?? 1, this.strokes, undefined, 0.62, false, this.pathViewport());
     this.pathPreview.addChild(graphic);
   }
 
@@ -807,15 +849,17 @@ export class PixiMapRenderer {
 
     const zoom = this.camera?.zoom ?? 1;
     const highlight = new Graphics();
-    drawDottedPath(highlight, selected, zoom, this.strokes, PATH_SELECTION_COLOR, 0.38, true);
+    drawDottedPath(highlight, selected, zoom, this.strokes, PATH_SELECTION_COLOR, 0.38, true, this.pathViewport());
     this.pathSelection.addChild(highlight);
 
-    if (selected.geometryType === 'freehand') {
-      return;
-    }
     const handles = new Graphics();
     const radius = HANDLE_RADIUS_CSS / zoom;
-    for (const point of selected.points) {
+    // Freehand endpoints are selection indicators only; hit testing still
+    // excludes them from control-point editing.
+    const indicatorPoints = selected.geometryType === 'freehand'
+      ? selected.points.filter((_, index) => index === 0 || index === selected.points.length - 1)
+      : selected.points;
+    for (const point of indicatorPoints) {
       handles
         .circle(point[0], point[1], radius)
         .fill({ color: 0xf2eee4, alpha: 0.96 })
@@ -852,6 +896,7 @@ export class PixiMapRenderer {
   private rebuildMarkerEditPreview(): void {
     destroyChildren(this.markerEdit);
     destroyChildren(this.markerEditCaption);
+    this.updateObjectOpacities();
     const captionsVisible = markerCaptionVisible(this.camera?.zoom ?? 1);
     for (const node of this.markerNodes.values()) {
       node.visible = true;
@@ -977,6 +1022,7 @@ export class PixiMapRenderer {
     if (this.labelEditPreview !== null) {
       this.labelEdit.addChild(createLabelRenderable(this.labelEditPreview, this.camera?.zoom ?? 1));
     }
+    this.updateObjectOpacities();
     this.rebuildLabelSelection();
   }
 
@@ -997,7 +1043,8 @@ export class PixiMapRenderer {
     const root = new Container();
     root.position.set(selected.x, selected.y);
     const visual = new Container();
-    visual.scale.set(markerRootWorldScale(zoom));
+    visual.scale.set(labelWorldScale(selected.referenceZoom));
+    visual.visible = isLabelVisibleAtZoom(zoom);
     visual.rotation = (selected.rotationDegrees * Math.PI) / 180;
     const { width, height } = labelVisualSize(selected);
     visual.addChild(
@@ -1037,12 +1084,17 @@ export class PixiMapRenderer {
 
   private updateLabelVisualScales(): void {
     const zoom = this.camera?.zoom ?? 1;
-    for (const node of this.labelNodes.values()) {
-      node.scale.set(markerRootWorldScale(zoom));
+    for (const label of this.labelObjects) {
+      const node = this.labelNodes.get(label.id);
+      if (node !== undefined) {
+        node.scale.set(labelWorldScale(label.referenceZoom));
+        node.visible = isLabelVisibleAtZoom(zoom);
+      }
     }
     const edit = this.labelEdit.children[0];
-    if (edit instanceof Container) {
-      edit.scale.set(markerRootWorldScale(zoom));
+    if (edit instanceof Container && this.labelEditPreview !== null) {
+      edit.scale.set(labelWorldScale(this.labelEditPreview.referenceZoom));
+      edit.visible = isLabelVisibleAtZoom(zoom);
     }
   }
 
@@ -1073,6 +1125,7 @@ export class PixiMapRenderer {
     this.stageRenderFrame = requestAnimationFrame(() => {
       this.stageRenderFrame = null;
       if (this.application !== null && !this.destroyed) {
+        if (this.pathsDirty) this.rebuildPaths();
         this.application.render();
       }
     });
@@ -1140,16 +1193,31 @@ export class PixiMapRenderer {
     // Keep the stroke in screen-pixel units while the grid geometry remains
     // world-space. Major and origin lines retain a modest visual hierarchy.
     const lineWidth = 0.85 / zoom;
-    const firstX = Math.ceil(minX / spacing) * spacing;
-    const firstY = Math.ceil(minY / spacing) * spacing;
+    // Iterate integer world-grid indices rather than repeatedly adding a
+    // floating-point spacing. This keeps the origin and every other line
+    // exactly anchored in world space across camera redraws.
+    const firstXIndex = Math.ceil(minX / spacing - 1e-9);
+    const lastXIndex = Math.floor(maxX / spacing + 1e-9);
+    const firstYIndex = Math.ceil(minY / spacing - 1e-9);
+    const lastYIndex = Math.floor(maxY / spacing + 1e-9);
     const gridTheme = mapVisualTheme().grid;
 
-    for (let x = firstX; x <= maxX + spacing * 0.001; x += spacing) {
-      drawGridLine(this.grid, x, minY, x, maxY, spacing, lineWidth, x === 0, gridTheme);
+    for (let index = firstXIndex; index <= lastXIndex; index += 1) {
+      const x = index * spacing;
+      drawGridLine(this.grid, x, minY, x, maxY, spacing, lineWidth, index === 0, gridTheme);
     }
-    for (let y = firstY; y <= maxY + spacing * 0.001; y += spacing) {
-      drawGridLine(this.grid, minX, y, maxX, y, spacing, lineWidth, y === 0, gridTheme);
+    for (let index = firstYIndex; index <= lastYIndex; index += 1) {
+      const y = index * spacing;
+      drawGridLine(this.grid, minX, y, maxX, y, spacing, lineWidth, index === 0, gridTheme);
     }
+  }
+
+  private pathViewport(): PathViewport | undefined {
+    if (this.camera === null || this.application === null) return undefined;
+    const { cameraX, cameraY, zoom } = this.camera;
+    const halfWidth = (this.application.screen.width / 2 + 8) / zoom;
+    const halfHeight = (this.application.screen.height / 2 + 8) / zoom;
+    return { minX: cameraX - halfWidth, maxX: cameraX + halfWidth, minY: cameraY - halfHeight, maxY: cameraY + halfHeight };
   }
 
   private addOriginIndicator(): void {
@@ -1180,7 +1248,8 @@ interface MarkerRenderable {
 function createLabelRenderable(label: Label, zoom: number): Container {
   const root = new Container();
   root.position.set(label.x, label.y);
-  root.scale.set(markerRootWorldScale(zoom));
+  root.scale.set(labelWorldScale(label.referenceZoom));
+  root.visible = isLabelVisibleAtZoom(zoom);
   root.rotation = (label.rotationDegrees * Math.PI) / 180;
   const text = new Text({
     text: label.text,
@@ -1257,8 +1326,8 @@ function applyMarkerCaptionTransform(
 
 /**
  * One Graphics object per path keeps the draw tree compact. Dot coordinates
- * are calculated in world units from a CSS-pixel target, so the camera can pan
- * by transforming the Paths container without regenerating a path.
+ * retain their full-path phase while only visible dots are materialized. Pan
+ * and zoom rebuild that viewport subset in the existing presentation frame.
  */
 function drawDottedPath(
   graphic: Graphics,
@@ -1268,6 +1337,7 @@ function drawDottedPath(
   overrideColor: number | undefined,
   alpha: number,
   highlighted: boolean,
+  viewport?: PathViewport,
 ): void {
   const points = pathPolyline(path);
   if (points.length === 0 || !Number.isFinite(zoom) || zoom <= 0) {
@@ -1276,7 +1346,7 @@ function drawDottedPath(
 
   const { radiusWorld, spacingWorld } = dottedPathVisualStyle(zoom, highlighted);
   const orderedTerrainStrokes = overrideColor === undefined ? orderTerrainStrokes(terrainStrokes) : [];
-  let nextDotAt = 0;
+  let nextDotIndex = 0;
   let distanceBeforeSegment = 0;
   let dots = 0;
 
@@ -1284,6 +1354,7 @@ function drawDottedPath(
     if (dots >= MAX_DOTS_PER_PATH) {
       return;
     }
+    if (viewport && (x < viewport.minX || x > viewport.maxX || y < viewport.minY || y > viewport.maxY)) return;
     const color = overrideColor ?? pathColorForVisibleBiome(resolveVisibleBiomeAtPointInOrder(orderedTerrainStrokes, [x, y]));
     graphic.circle(x, y, radiusWorld).fill({ color, alpha });
     dots += 1;
@@ -1294,7 +1365,7 @@ function drawDottedPath(
     return;
   }
 
-  for (let index = 1; index < points.length && dots < MAX_DOTS_PER_PATH; index += 1) {
+  for (let index = 1; index < points.length && nextDotIndex < MAX_DOTS_PER_PATH; index += 1) {
     const start = points[index - 1];
     const end = points[index];
     const deltaX = end[0] - start[0];
@@ -1304,16 +1375,20 @@ function drawDottedPath(
       continue;
     }
     const segmentEnd = distanceBeforeSegment + segmentLength;
-    while (nextDotAt <= segmentEnd && dots < MAX_DOTS_PER_PATH) {
-      const along = Math.max(0, nextDotAt - distanceBeforeSegment) / segmentLength;
+    const range = viewport ? visibleSegmentRange(start, end, viewport) : [0, 1];
+    const lastDotIndex = Math.min(MAX_DOTS_PER_PATH - 1, Math.floor(segmentEnd / spacingWorld));
+    const firstVisible = range === null ? lastDotIndex + 1 : Math.max(nextDotIndex, Math.ceil((distanceBeforeSegment + range[0] * segmentLength) / spacingWorld));
+    const lastVisible = range === null ? -1 : Math.min(lastDotIndex, Math.floor((distanceBeforeSegment + range[1] * segmentLength) / spacingWorld));
+    for (let dotIndex = firstVisible; dotIndex <= lastVisible; dotIndex += 1) {
+      const along = Math.max(0, dotIndex * spacingWorld - distanceBeforeSegment) / segmentLength;
       drawDot(start[0] + deltaX * along, start[1] + deltaY * along);
-      nextDotAt += spacingWorld;
     }
+    nextDotIndex = lastDotIndex + 1;
     distanceBeforeSegment = segmentEnd;
   }
 
   // Very short paths still need a visible endpoint rather than one isolated dot.
-  if (dots === 1) {
+  if (distanceBeforeSegment < spacingWorld) {
     const end = points.at(-1)!;
     drawDot(end[0], end[1]);
   }

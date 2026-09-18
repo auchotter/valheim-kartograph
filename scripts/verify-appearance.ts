@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { BIOME_STYLES } from '../client/src/lib/biomeStyles.ts';
+import { isLabelVisibleAtZoom, labelWorldScale, labelZoomScale } from '../client/src/lib/labelGeometry.ts';
 import { mapVisualTheme } from '../client/src/lib/mapVisualTheme.ts';
 
 // The production palette is the former Immersive palette, now unconditional.
@@ -15,6 +16,19 @@ assert.deepEqual(mapVisualTheme(), {
 assert.equal(BIOME_STYLES.meadows.baseHex, '#899A52');
 assert.equal(BIOME_STYLES.ocean.markHex, '#496E72');
 
+for (const [zoom, expected] of [
+  [0.2, 0.25316455696202533],
+  [0.79, 1],
+  [1, 1.2658227848101264],
+  [2, 2.531645569620253],
+  [8, 10.126582278481013],
+] as const) {
+  assert.ok(Math.abs(labelZoomScale(zoom, 0.79) - expected) < 1e-12);
+}
+assert.equal(isLabelVisibleAtZoom(0.199), false);
+assert.equal(isLabelVisibleAtZoom(0.2), true);
+assert.ok(Math.abs(labelWorldScale(0.79) - (1 / 0.79)) < 1e-12);
+
 const workspaceSource = readFileSync(new URL('../client/src/components/MapWorkspace.tsx', import.meta.url), 'utf8');
 const mapMenuSource = readFileSync(new URL('../client/src/components/MapMenu.tsx', import.meta.url), 'utf8');
 const mapToolbarSource = readFileSync(new URL('../client/src/components/MapToolbar.tsx', import.meta.url), 'utf8');
@@ -26,6 +40,7 @@ const canvasSource = readFileSync(new URL('../client/src/components/map/MapCanva
 const stylesSource = readFileSync(new URL('../client/src/styles.css', import.meta.url), 'utf8');
 const biomeSource = readFileSync(new URL('../client/src/lib/biomeTextures.ts', import.meta.url), 'utf8');
 const parchmentSource = readFileSync(new URL('../client/src/lib/parchmentTextures.ts', import.meta.url), 'utf8');
+const labelGeometrySource = readFileSync(new URL('../client/src/lib/labelGeometry.ts', import.meta.url), 'utf8');
 
 assert.equal(existsSync(new URL('../client/src/components/AppearanceSelector.tsx', import.meta.url)), false);
 assert.match(workspaceSource, /data-ui-mode="immersive"/);
@@ -40,6 +55,14 @@ assert.doesNotMatch(mapToolbarSource, /showsInlineBrushControls|showsInlinePathC
 assert.doesNotMatch(stylesSource, /marker-inspector|appearance-selector|map-toolbar__(?:field|size|delete)/);
 assert.doesNotMatch(workspaceSource, /AppearanceSelector|map-top-hud__right|north-indicator/);
 assert.match(workspaceSource, /aria-pressed=\{protectEnabled\}/);
+assert.match(workspaceSource, /id: 'opacity'/);
+assert.match(workspaceSource, />\s*Opacity\s*</);
+assert.doesNotMatch(workspaceSource, /Adjust path visibility|nextPathOpacity|pathOpacityLabel/);
+assert.match(workspaceSource, /<OpacityPopup/);
+assert.match(workspaceSource, /markerOpacity/);
+assert.match(workspaceSource, /textOpacity/);
+assert.match(workspaceSource, /onMarkerOpacityChange/);
+assert.match(workspaceSource, /onTextOpacityChange/);
 assert.match(mapMenuSource, /aria-current=\{selected \? 'true' : undefined\}/);
 assert.match(mapMenuSource, /map-menu__map-button/);
 assert.match(mapMenuSource, />\s*NEW MAP\s*</);
@@ -50,7 +73,17 @@ assert.match(mapToolbarSource, /toolItem\('biome_brush', 'Biome Brush', 'B'\)/);
 assert.match(mapToolbarSource, /toolItem\('eraser', 'Eraser', 'E'\)/);
 assert.match(mapToolbarSource, /toolItem\('path', 'Path', 'P'\)/);
 assert.match(mapToolbarSource, /toolItem\('marker', 'Marker', 'M'\)/);
-assert.match(mapToolbarSource, /toolItem\('marker', 'Marker', 'M'\),[\s\S]*toolItem\('text', 'Text'\),[\s\S]*toolItem\('select', 'Select', 'V'\)/);
+assert.match(mapToolbarSource, /toolItem\('marker', 'Marker', 'M'\),[\s\S]*toolItem\('text', 'Text', 'T'\),[\s\S]*toolItem\('select', 'Select', 'V'\)/);
+assert.match(workspaceSource, /case 't':[\s\S]*changeTool\(tool === 'text' \? 'pan' : 'text'\)/);
+assert.match(workspaceSource, /aria-pressed=\{opacityPopupOpen\}/);
+assert.match(workspaceSource, /anchorRef=\{opacityButtonRef\}/);
+assert.match(workspaceSource, /event\.preventDefault\(\);[\s\S]*event\.stopPropagation\(\);[\s\S]*void confirmSelectedObject\(\)/);
+assert.doesNotMatch(stylesSource, /cursor: (cell|cross);/);
+assert.equal((stylesSource.match(/cursor: crosshair;/g) ?? []).length, 1);
+assert.match(stylesSource, /\.map-canvas-host--path-creation:active \{\s*cursor: crosshair;/);
+assert.match(canvasSource, /tool === 'path' && selectedPathId === null \? ' map-canvas-host--path-creation'/);
+assert.match(workspaceSource, /onTextCreationCancel=\{\(\) => \{\s*if \(textCreationDraft\.trim\(\) === ''\) enterNeutralPan\(\);\s*else cancelTextCreation\(\)/);
+assert.match(rendererSource, /graphic\.alpha = id === this\.selectedPathId \? 1 : this\.pathOpacity/);
 assert.match(mapToolbarSource, /toolItem\('select', 'Select', 'V'\)/);
 assert.match(mapToolbarSource, /const handleToolClick = \(nextTool: MapTool\) => \{[\s\S]*onToolChange\(nextTool === tool && nextTool !== 'pan' \? 'pan' : nextTool\)/);
 assert.match(mapToolbarSource, /handleToolClick\(item\.tool\); closeOverflow\(\)/);
@@ -74,7 +107,7 @@ assert.match(workspaceSource, /<MapToolbar/);
 assert.match(workspaceSource, /const enterNeutralPan = useCallback\(\(\) => \{[\s\S]*setTool\('pan'\)[\s\S]*setSelectedMarkerId\(cleared\.selectedMarkerId\)[\s\S]*setSelectedPathId\(null\)/);
 assert.match(workspaceSource, /if \(nextTool === 'pan'\) \{[\s\S]*enterNeutralPan\(\);/);
 assert.match(workspaceSource, /const confirmTextCreationFromMap = useCallback\(async[\s\S]*enterNeutralPan\(\);/);
-assert.match(workspaceSource, /setLabelPreviewState\(saved\);[\s\S]*setSelectedLabelId\(saved\.id\)/);
+assert.match(workspaceSource, /setLabelPreviewState\(saved\);[\s\S]*selectLabel\(saved\.id\)/);
 assert.match(workspaceSource, /const commitSelectedLabelAndExit = useCallback\(async[\s\S]*saveLabelUpdate|updateLabel\(draft\)/);
 assert.match(workspaceSource, /const activateObjectTool = useCallback\(\(nextTool: MapTool\) => \{[\s\S]*setMarkerGalleryOpen\(false\)[\s\S]*setTool\(nextTool\)/);
 assert.doesNotMatch(mapToolbarSource, /<span>Biome<\/span>/);
@@ -108,26 +141,44 @@ assert.match(canvasSource, /textCreationActive: boolean/);
 assert.match(canvasSource, /currentTool === 'text' && textCreationActiveRef\.current && initialGesture === 'select'[\s\S]*onTextCreationMapConfirm\(\)/);
 assert.match(canvasSource, /hitTestLabel\(\[draftPreview\], worldPoint, cameraRef\.current\.zoom\)[\s\S]*onTextCreationPointerDown\(\)/);
 assert.match(canvasSource, /if \(!labels\.some\(\(label\) => label\.id === preview\.id\)\)[\s\S]*return \[\.\.\.labels, preview\]/);
-assert.match(canvasSource, /currentTool === 'text'[\s\S]*onTextMapClickAway\(\)/);
+assert.match(canvasSource, /const selectedAtPointerDown = \{[\s\S]*const hasSelectedObject =/);
+assert.match(canvasSource, /onSelectedObjectMapClickAway: \(\) => Promise<boolean>;/);
+assert.match(canvasSource, /event\.key === 'Escape' && !isTypingTarget\(event\.target\)/);
+assert.match(canvasSource, /cancelActivePointerGesture\(\);[\s\S]*onToolChange\('pan'\)/);
 assert.match(canvasSource, /currentTool === 'select' && selectedLabelIdRef\.current !== null/);
 assert.match(canvasSource, /text-create-drag/);
 assert.match(canvasSource, /if \(current\.released\)[\s\S]*onLabelUpdate\(movedLabel\)/);
 assert.match(canvasSource, /OBJECT_DRAG_THRESHOLD_PX/);
 assert.match(canvasSource, /grabOffset: \[worldPoint\[0\] - hitLabel\.x, worldPoint\[1\] - hitLabel\.y\]/);
 assert.match(canvasSource, /grabOffset: \[worldPoint\[0\] - hitMarker\.x, worldPoint\[1\] - hitMarker\.y\]/);
-assert.match(canvasSource, /if \(wasSelected\) \{[\s\S]*activePointerGestureRef\.current = \{ pointerId: event\.pointerId, kind: 'label-drag' \}/);
+assert.match(canvasSource, /if \(hitLabel\.objectVersion > 0[\s\S]*labelDragStateRef\.current = \{[\s\S]*dragStarted: false/);
 assert.match(canvasSource, /if \(!dragging\.dragStarted \|\| !dragging\.moved\)/);
-assert.match(canvasSource, /if \(interactivePan\) \{[\s\S]*activateObjectTool\('text'\)/);
-assert.match(canvasSource, /if \(interactivePan\) \{[\s\S]*activateObjectTool\('marker'\)/);
-assert.match(canvasSource, /if \(interactivePan\) \{[\s\S]*activateObjectTool\('path'\)/);
+assert.match(canvasSource, /if \(currentTool !== 'text'\) \{[\s\S]*activateObjectTool\('text'\)/);
+assert.match(canvasSource, /if \(currentTool !== 'marker'\) activateObjectTool\('marker'\)/);
+assert.match(canvasSource, /if \(currentTool !== 'path'\) \{[\s\S]*activateObjectTool\('path'\)/);
 assert.match(canvasSource, /objectToolActivationRef\.current === tool/);
 assert.match(rendererSource, /setLabels\(labels: readonly Label\[\]\)/);
-assert.match(rendererSource, /this\.textLabels\.alpha = this\.pathOpacity/);
+assert.match(rendererSource, /root\.scale\.set\(labelWorldScale\(label\.referenceZoom\)\)/);
+assert.match(rendererSource, /root\.visible = isLabelVisibleAtZoom\(zoom\)/);
+assert.match(rendererSource, /visual\.scale\.set\(labelWorldScale\(selected\.referenceZoom\)\)/);
+assert.match(labelGeometrySource, /currentZoom \/ referenceZoom/);
+assert.match(labelGeometrySource, /if \(!isLabelVisibleAtZoom\(zoom\)\) return null/);
+assert.match(rendererSource, /setMarkerOpacity\(opacity: number\)/);
+assert.match(rendererSource, /setTextOpacity\(opacity: number\)/);
+assert.match(rendererSource, /caption\.alpha = id === this\.selectedMarkerId \? 1 : this\.markerOpacity/);
+assert.match(rendererSource, /node\.alpha = id === this\.selectedLabelId \? 1 : this\.textOpacity/);
+assert.doesNotMatch(rendererSource.slice(rendererSource.indexOf('setPathsOpacity(opacity: number): void'), rendererSource.indexOf('setMarkerOpacity(opacity: number): void')), /textLabels/);
+assert.match(rendererSource, /this\.markerEditCaption\.alpha = this\.markerEdit\.alpha/);
 const pathOpacityBlock = rendererSource.slice(
   rendererSource.indexOf('setPathsOpacity(opacity: number): void'),
-  rendererSource.indexOf('setSelectedPath(pathId: string | null): void'),
+  rendererSource.indexOf('setMarkerOpacity(opacity: number): void'),
 );
 assert.doesNotMatch(pathOpacityBlock, /this\.labels\.alpha/);
+assert.doesNotMatch(pathOpacityBlock, /this\.textLabels\.alpha/);
+assert.match(canvasSource, /markerOpacity: number/);
+assert.match(canvasSource, /textOpacity: number/);
+assert.match(canvasSource, /markerOpacityRef\.current > 0/);
+assert.match(canvasSource, /textOpacityRef\.current > 0/);
 assert.match(rendererSource, /fontFamily: `\$\{MARKER_CAPTION_FONT_FAMILY\}/);
 assert.match(hudLayoutSource, /MEDIUM_UTILITY_IDS = new Set\(\['map-library'/);
 assert.match(hudLayoutSource, /NARROW_UTILITY_IDS = new Set\(\['map-library'/);
@@ -315,20 +366,25 @@ assert.match(workspaceSource, /debugInfoView === 'bug-report'[\s\S]*className="d
 assert.match(workspaceSource, /aria-label="Back to debug information"[\s\S]*onClick=\{closeOrBackDebugInfo\}/);
 assert.match(workspaceSource, /aria-label="Report Bug"[\s\S]*title="Report Bug"[\s\S]*onClick=\{\(\) => setDebugInfoView\('bug-report'\)\}/);
 assert.match(workspaceSource, /aria-label="Coordinates Settings"[\s\S]*title="Coordinates Settings"[\s\S]*onClick=\{\(\) => setDebugInfoView\('settings'\)\}/);
+assert.match(workspaceSource, /const APP_VERSION = 'v1\.0'/);
+assert.match(workspaceSource, /debug-info__coordinate-line--versioned[\s\S]*debug-info__version[\s\S]*APP_VERSION/);
 assert.match(workspaceSource, /if \(debugInfoView === 'bug-report'\) \{[\s\S]*setDebugInfoView\('readout'\)/);
 assert.match(workspaceSource, /debugInfoView === 'bug-report'[\s\S]*setDebugInfoView\('settings'\)[\s\S]*debugInfoView === 'settings'/);
+assert.match(workspaceSource, /selectedMarkerId === null && selectedPathId === null && selectedLabelId === null/);
 assert.match(workspaceSource, /debug-info__coordinate-line[\s\S]*<span>X:<\/span>[\s\S]*<span>\{formatCoordinate/);
 assert.match(workspaceSource, /debug-info__coordinate-line[\s\S]*<span>Z:<\/span>[\s\S]*<span>\{formatCoordinate/);
 assert.match(workspaceSource, /debug-info__symbol" aria-hidden="true">\?<\/span>/);
 assert.match(workspaceSource, /role="radiogroup" aria-label="Coordinate source"[\s\S]*role="radio"[\s\S]*aria-checked=\{debugCoordinateMode === mode\}/);
 assert.match(workspaceSource, /const centreValheim = mapToValheimCoordinates\(mapSession\.camera\.cameraX, mapSession\.camera\.cameraY\)/);
 assert.match(workspaceSource, /const debugValheim = debugCoordinateMode === 'cursor' \? cursorValheim : centreValheim/);
-assert.match(workspaceSource, /closeOnEscape[\s\S]*debugInfoView === 'settings'[\s\S]*setDebugInfoView\('readout'\)[\s\S]*closeDebugInfo\(\)/);
+assert.doesNotMatch(workspaceSource.slice(workspaceSource.indexOf('const closeOnEscape'), workspaceSource.indexOf("document.addEventListener('keydown', closeOnEscape)")), /closeDebugInfo\(\)|setDebugInfoOpen\(false\)/);
 assert.match(workspaceSource, /closeOnEscape[\s\S]*debugInfoView === 'bug-report'[\s\S]*setDebugInfoView\('settings'\)/);
 assert.match(stylesSource, /\.map-workspace \{[\s\S]*--hud-edge-inset: 14px/);
 assert.match(stylesSource, /\.map-top-hud \{[\s\S]*top: var\(--hud-edge-inset\)[\s\S]*left: var\(--hud-edge-inset\)/);
 assert.match(stylesSource, /\.debug-info \{[\s\S]*bottom: var\(--hud-edge-inset\)[\s\S]*left: var\(--hud-edge-inset\)/);
 assert.match(stylesSource, /debug-info__popup \{[\s\S]*font-size: calc\(var\(--immersive-ui-button-font-size\) - 3px\)/);
+assert.match(stylesSource, /debug-info__coordinate-line--versioned \{[\s\S]*justify-content: space-between/);
+assert.match(stylesSource, /data-ui-mode='immersive'\] \.debug-info__version \{[\s\S]*font-size: calc\(var\(--immersive-ui-button-font-size\) - 5px\)[\s\S]*font-weight: 400/);
 assert.match(stylesSource, /data-ui-mode='immersive'\] \.debug-info__popup[\s\S]*clip-path: polygon/);
 assert.match(stylesSource, /data-ui-mode='immersive'\] \.debug-info__popup::before[\s\S]*drop-shadow/);
 assert.match(stylesSource, /data-ui-mode='immersive'\] \.debug-info__symbol[\s\S]*box-sizing: border-box[\s\S]*width: calc\(var\(--immersive-px\) \* 5\)[\s\S]*font-family: ValheimNorse, Georgia, serif[\s\S]*font-size: calc\(var\(--immersive-ui-button-font-size\) \+ 2px\)[\s\S]*border: 0[\s\S]*border-radius: 0/);
@@ -339,12 +395,24 @@ assert.match(stylesSource, /data-ui-mode='immersive'\] \.debug-info__report-butt
 assert.match(stylesSource, /\.map-workspace\[data-ui-mode='immersive'\] \{[\s\S]*font-family: ValheimNorse, Georgia, serif/);
 assert.match(mapMenuSource, /map-menu__map-button immersive-wood-button/);
 assert.match(mapMenuSource, /map-menu__actions-toggle immersive-wood-button/);
+assert.match(mapMenuSource, /aria-label="Import or export map"/);
+assert.match(mapMenuSource, /IMPORT MAP/);
+assert.match(mapMenuSource, /EXPORT CURRENT MAP/);
+assert.match(mapMenuSource, /if \(portableOpen\) setPortableOpen\(false\);\s*else close\(\)/);
+assert.match(mapMenuSource, /className="map-menu__portable-drawer"/);
+assert.match(mapMenuSource, /ref=\{listRef\}[\s\S]*height: `\$\{Math\.max\(0, portableListHeight - portableDrawerHeight\)\}px`/);
+assert.doesNotMatch(mapMenuSource, /portableMenuRef|position: fixed|anchor\.bottom/);
+assert.match(stylesSource, /map-menu__portable-drawer \{[\s\S]*display: grid[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);
+assert.doesNotMatch(stylesSource, /map-menu__portable-menu/);
 assert.match(mapMenuSource, /className="immersive-wood-button"/);
 assert.match(mapMenuSource, /immersive-wood-button--danger/);
 assert.match(mapMenuSource, /className="immersive-recessed-field"/);
 assert.match(mapMenuSource, /aria-current={selected \? 'true' : undefined}/);
 assert.match(stylesSource, /map-menu__row \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) 48px/);
-assert.match(stylesSource, /map-workspace\[data-ui-mode='immersive'\] \.map-menu__list \{[\s\S]*padding: calc\(var\(--immersive-px\) \* 3\)/);
+assert.match(stylesSource, /map-workspace\[data-ui-mode='immersive'\] \.map-menu__list \{[\s\S]*padding: var\(--map-library-content-inset\)/);
+assert.match(stylesSource, /map-menu__panel \{[\s\S]*--map-library-content-inset: calc\(var\(--immersive-px\) \* 3\)/);
+assert.match(stylesSource, /map-menu__header \{[\s\S]*padding-right: var\(--map-library-content-inset\)/);
+assert.match(stylesSource, /map-menu__portable-toggle \{[\s\S]*width: var\(--immersive-toolbar-control-height\)[\s\S]*height: var\(--immersive-toolbar-control-height\)[\s\S]*padding: 0/);
 assert.match(stylesSource, /map-menu__list \{[\s\S]*scrollbar-gutter: stable/);
 assert.match(stylesSource, /map-menu__list::-webkit-scrollbar \{[\s\S]*width: calc\(var\(--immersive-px\) \* 4\)/);
 assert.match(stylesSource, /map-menu__list::-webkit-scrollbar-track \{[\s\S]*background: #d6b778[\s\S]*border-radius: 0/);
@@ -426,6 +494,27 @@ assert.match(finalGeometryBlock, /\.immersive-wood-button \{[\s\S]*border: 0[\s\
 assert.match(finalGeometryBlock, /\.map-menu__row \{[\s\S]*border: 0[\s\S]*box-shadow: none[\s\S]*background: transparent/);
 assert.match(finalGeometryBlock, /\.map-menu__actions \{[\s\S]*border: 0[\s\S]*box-shadow: none[\s\S]*background: transparent/);
 assert.match(finalGeometryBlock, /\.immersive-wood-button--danger \{[\s\S]*background-color: var\(--immersive-wood-selected\)/);
+assert.match(stylesSource, /--immersive-button-hover: var\(--immersive-wood-light\)/);
+assert.match(stylesSource, /--immersive-danger-button-hover: var\(--immersive-wood-selected\)/);
+const normalHoverStart = stylesSource.indexOf(
+  ".map-workspace[data-ui-mode='immersive'] .map-controls .utility-control:hover:not(:disabled)",
+);
+const normalHoverBlock = stylesSource.slice(
+  normalHoverStart,
+  stylesSource.indexOf(
+    ".map-workspace[data-ui-mode='immersive'] .map-controls .utility-control[aria-pressed='true']",
+    normalHoverStart,
+  ),
+);
+assert.match(normalHoverBlock, /\.map-toolbar__tools \.map-toolbar__tool:hover/);
+assert.match(normalHoverBlock, /\.immersive-wood-button:hover:not\(:disabled\)/);
+assert.match(normalHoverBlock, /background: var\(--immersive-button-hover\)/);
+assert.match(finalGeometryBlock, /\.immersive-wood-button--danger:hover:not\(:disabled\) \{\s*background: var\(--immersive-danger-button-hover\) !important;/);
+assert.match(workspaceSource, /className="debug-info__button immersive-wood-button"/);
+assert.match(coordinateSource, /<button type="button" className="immersive-wood-button"[^>]*>Cancel<\/button>/);
+assert.match(coordinateSource, /<button type="submit" className="immersive-wood-button">Go<\/button>/);
+assert.match(mapToolbarSource, /className="immersive-wood-button contextual-picker__trigger"/);
+assert.match(mapToolbarSource, /className=\{`immersive-wood-button contextual-picker__option/);
 assert.doesNotMatch(finalGeometryBlock, /\.map-menu__delete\s*\{/);
 assert.doesNotMatch(finalGeometryBlock, /map-menu__actions-toggle::before|map-menu__actions-toggle::after/);
 assert.doesNotMatch(dangerBlock, /background-image|box-shadow|transform/);

@@ -65,6 +65,27 @@ try {
   assert.equal(undoPathCreate.json.action, 'object.delete');
   assert.equal((await state(map.id)).objects.some((object: any) => object.id === path.id), false);
 
+  const anchoredLabel = labelObject(22, 24, 0.79);
+  assert.equal(
+    (await request('POST', `/api/maps/${map.id}/objects`, mutation(actorA, id(clientNumber++), anchoredLabel))).statusCode,
+    201,
+  );
+  assert.equal(
+    (await request('PUT', `/api/maps/${map.id}/objects/${anchoredLabel.id}`, {
+      ...mutation(actorA, id(clientNumber++)),
+      baseObjectVersion: 1,
+      object: { ...anchoredLabel, fontSize: 36, referenceZoom: 1.5 },
+    })).statusCode,
+    200,
+  );
+  const undoLabelResize = await undo(map.id, actorA);
+  assert.equal(undoLabelResize.json.action, 'object.update');
+  const labelAfterUndo = (await state(map.id)).objects.find((object: any) => object.id === anchoredLabel.id);
+  assert.deepEqual(
+    { fontSize: labelAfterUndo.fontSize, referenceZoom: labelAfterUndo.referenceZoom },
+    { fontSize: 24, referenceZoom: 0.79 },
+  );
+
   const deletedMarker = markerObject(12, 3, 4);
   assert.equal((await request('POST', `/api/maps/${map.id}/objects`, mutation(actorA, id(clientNumber++), deletedMarker))).statusCode, 201);
   assert.equal(
@@ -201,6 +222,13 @@ function markerObject(number: number, x: number, y: number) {
 
 function pathObject(number: number, points: number[][]) {
   return { id: id(number), objectType: 'path', pathType: 'path', geometryType: 'straight', strokeWidth: 8, points };
+}
+
+function labelObject(number: number, fontSize: number, referenceZoom: number) {
+  return {
+    id: id(number), objectType: 'label', x: 0, y: 0, text: 'Anchored text',
+    fontSize, referenceZoom, rotationDegrees: 0,
+  };
 }
 
 function mutation(actor: string, clientOperationId: string, object?: unknown) {

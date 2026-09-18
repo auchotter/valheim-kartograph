@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { BiomeStroke, Id, Label, MapObject, MapRecord, Marker, Path } from '../../../shared/domain';
-import { createMap, deleteMap, duplicateMap, listMaps, loadMapState, redoMap as requestRedo, renameMap, undoMap as requestUndo } from '../api/maps';
+import { createMap, deleteMap, duplicateMap, importMap, listMaps, loadMapState, redoMap as requestRedo, renameMap, undoMap as requestUndo } from '../api/maps';
+import type { PortableMap } from '../../../shared/portableMap';
 import { ApiClientError } from '../api/http';
 import {
   createBiomeStroke,
@@ -661,6 +662,14 @@ export function useMapSession() {
     [runMapAction],
   );
 
+  const importAndSelectMap = useCallback((snapshot: PortableMap): Promise<MapActionResult> =>
+    runMapAction(async () => {
+      const state = await importMap(snapshot);
+      ++loadRequestRef.current;
+      applyLoadedMap(state, undefined, false, snapshot.workspace.camera);
+      return { ok: true };
+    }), [applyLoadedMap, runMapAction]);
+
   const duplicateAndSelectMap = useCallback(
     (mapId: Id, rawName: string): Promise<MapActionResult> =>
       runMapAction(async () => {
@@ -844,7 +853,7 @@ export function useMapSession() {
     }
   }, [beginPathMutation, finishPathMutation]);
 
-  const savePathUpdate = useCallback(async (draft: Path): Promise<void> => {
+  const savePathUpdate = useCallback(async (draft: Path): Promise<boolean> => {
     const map = currentMapRef.current;
     const previous = objectsRef.current.find(
       (object): object is Path => object.id === draft.id && object.objectType === 'path',
@@ -857,7 +866,7 @@ export function useMapSession() {
       previous.objectVersion < 1 ||
       !beginPathMutation(map.id, draft.id)
     ) {
-      return;
+      return false;
     }
 
     const mapId = map.id;
@@ -877,13 +886,14 @@ export function useMapSession() {
         draft,
       );
       if (currentMapRef.current?.id !== mapId) {
-        return;
+        return false;
       }
       setObjects((current) => replaceObject(current, result.object));
       updateCurrentMapRevision(mapId, result.mapRevision, result.object.orderKey, result.object.updatedAt, currentMapRef, setCurrentMap, localRevisionRef);
+      return true;
     } catch (error) {
       if (currentMapRef.current?.id !== mapId) {
-        return;
+        return false;
       }
       if (error instanceof ApiClientError && error.status === 409) {
         await refreshObjectsAfterConflict(mapId, currentMapRef, setCurrentMap, setObjects, setSaveError, localRevisionRef);
@@ -891,7 +901,9 @@ export function useMapSession() {
         setObjects((current) => replaceObject(current, previous));
         setSaveError(toMessage(error, 'Path update failed.'));
       }
+      return false;
     } finally {
+      finishPathMutation(mapId, draft.id);
       pendingOperationIdsRef.current.delete(clientOperationId);
       finishPendingMutation();
       setPendingPathMutationCount((count) => Math.max(0, count - 1));
@@ -1421,6 +1433,7 @@ export function useMapSession() {
     retryBootstrap: bootstrap,
     switchMap,
     createAndSelectMap,
+    importAndSelectMap,
     renameExistingMap,
     duplicateAndSelectMap,
     deleteExistingMap,

@@ -49,6 +49,8 @@ export interface MapCanvasHandle {
   deleteSelectedPath: () => void;
   deleteSelectedMarker: () => void;
   cancelTransientInteraction: () => void;
+  finishSelectedGesture: () => Promise<boolean>;
+  focus: () => void;
 }
 
 interface MapCanvasProps {
@@ -64,6 +66,8 @@ interface MapCanvasProps {
   pendingMarkerIds: ReadonlySet<string>;
   pendingLabelIds: ReadonlySet<string>;
   pathOpacity: number;
+  markerOpacity: number;
+  textOpacity: number;
   protectEnabled: boolean;
   pathGeometryType: PathGeometryType;
   armedMarkerType: string | null;
@@ -80,19 +84,19 @@ interface MapCanvasProps {
   onCursorWorldChange: (point: WorldPoint) => void;
   onStrokeComplete: (gesture: CompletedBrushGesture) => void;
   onPathComplete: (gesture: CompletedPathGesture) => void;
-  onPathUpdate: (path: Path) => void;
+  onPathUpdate: (path: Path) => Promise<boolean>;
   onPathDelete: (pathId: string) => void;
   onPathSelectionChange: (pathId: string | null) => void;
   onMarkerComplete: (gesture: CompletedMarkerGesture) => void;
-  onMarkerUpdate: (marker: Marker) => void;
+  onMarkerUpdate: (marker: Marker) => Promise<boolean>;
   onMarkerDelete: (markerId: string) => void;
   onMarkerSelectionChange: (markerId: string | null) => void;
-  onLabelUpdate: (label: Label) => void;
+  onLabelUpdate: (label: Label) => Promise<boolean>;
   onLabelDelete: (labelId: string) => void;
   onLabelSelectionChange: (labelId: string | null) => void;
   onTextCreationMapConfirm: () => Promise<void>;
   onTextCreationPointerDown: () => Promise<Label | null>;
-  onTextMapClickAway: () => Promise<boolean>;
+  onSelectedObjectMapClickAway: () => Promise<boolean>;
   onMarkerPlacementDisarm: () => void;
   onToolChange: (tool: MapTool) => void;
   onObjectToolChange: (tool: MapTool) => void;
@@ -124,7 +128,9 @@ interface PathDrawingState {
 interface PathEditState {
   pointerId: number;
   path: Path;
-  pointIndex: number;
+  pointIndex: number | null;
+  originalPoints: WorldPoint[];
+  startWorldPoint: WorldPoint;
   startScreenPoint: ScreenPoint;
   dragStarted: boolean;
 }
@@ -230,6 +236,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     pendingMarkerIds,
     pendingLabelIds,
     pathOpacity,
+    markerOpacity,
+    textOpacity,
     protectEnabled,
     pathGeometryType,
     armedMarkerType,
@@ -258,7 +266,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     onLabelSelectionChange,
     onTextCreationMapConfirm,
     onTextCreationPointerDown,
-    onTextMapClickAway,
+    onSelectedObjectMapClickAway,
     onMarkerPlacementDisarm,
     onToolChange,
     onObjectToolChange,
@@ -292,6 +300,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   const labelPreviewRef = useRef<Label | null>(labelPreview);
   const textCreationDragStateRef = useRef<TextCreationDragState | null>(null);
   const pathOpacityRef = useRef(pathOpacity);
+  const markerOpacityRef = useRef(markerOpacity);
+  const textOpacityRef = useRef(textOpacity);
   const protectEnabledRef = useRef(protectEnabled);
   const biomeRef = useRef(biome);
   const brushWidthRef = useRef(brushWidth);
@@ -384,7 +394,9 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   const updateMarkerHover = useCallback((point: WorldPoint | null) => {
     const hovered = point === null
       ? null
-      : hitTestMarker(markersRef.current, point, cameraRef.current.zoom);
+      : markerOpacityRef.current > 0
+        ? hitTestMarker(markersRef.current, point, cameraRef.current.zoom)
+        : null;
     // Hover swaps artwork only for Vegvisir. Keeping ordinary markers out of
     // this retained-renderer path prevents needless marker-tree rebuilds.
     rendererRef.current?.setHoveredMarker(hovered !== null && isVegvisirMarker(hovered.markerType) ? hovered.id : null);
@@ -534,6 +546,16 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   }, [pathOpacity]);
 
   useEffect(() => {
+    markerOpacityRef.current = markerOpacity;
+    rendererRef.current?.setMarkerOpacity(markerOpacity);
+  }, [markerOpacity]);
+
+  useEffect(() => {
+    textOpacityRef.current = textOpacity;
+    rendererRef.current?.setTextOpacity(textOpacity);
+  }, [textOpacity]);
+
+  useEffect(() => {
     protectEnabledRef.current = protectEnabled;
   }, [protectEnabled]);
 
@@ -591,6 +613,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       renderer.setMarkers(markersRef.current);
       renderer.setLabels(labelsRef.current);
       renderer.setPathsOpacity(pathOpacityRef.current);
+      renderer.setMarkerOpacity(markerOpacityRef.current);
+      renderer.setTextOpacity(textOpacityRef.current);
       renderer.setSelectedPath(selectedPathIdRef.current);
       renderer.setSelectedMarker(selectedMarkerIdRef.current);
       renderer.setSelectedLabel(selectedLabelIdRef.current);
@@ -615,6 +639,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       if (event.code === 'Space' && !isTypingTarget(event.target)) {
         spaceHeldRef.current = true;
         const activeGesture = activePointerGestureRef.current;
@@ -646,6 +671,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         }
         if (selectedMarkerIdRef.current !== null || selectedPathIdRef.current !== null || selectedLabelIdRef.current !== null || toolRef.current !== 'pan') {
           event.preventDefault();
+          cancelActivePointerGesture();
           // No transient workspace interaction owns Escape, so use the same
           // neutral state transition as choosing Pan from the tool toolbar.
           onToolChange('pan');
@@ -730,8 +756,25 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         }
       },
       cancelTransientInteraction,
+      focus: () => hostRef.current?.focus({ preventScroll: true }),
+      finishSelectedGesture: async () => {
+        const path = pathEditStateRef.current;
+        const marker = markerDragStateRef.current;
+        const label = labelDragStateRef.current;
+        const pending = path ?? marker ?? label;
+        if (pending === null) return true;
+        pathEditStateRef.current = null;
+        markerDragStateRef.current = null;
+        labelDragStateRef.current = null;
+        activePointerGestureRef.current = null;
+        if (hostRef.current?.hasPointerCapture(pending.pointerId)) hostRef.current.releasePointerCapture(pending.pointerId);
+        if (path?.dragStarted) return onPathUpdate(path.path);
+        if (marker?.dragStarted && marker.moved) return onMarkerUpdate(marker.marker);
+        if (label?.dragStarted && label.moved) return onLabelUpdate(label.label);
+        return true;
+      },
     }),
-    [cancelTransientInteraction, commitCamera, onMarkerDelete, onMarkerSelectionChange, onPathDelete, onPathSelectionChange],
+    [cancelTransientInteraction, commitCamera, onMarkerDelete, onMarkerSelectionChange, onPathDelete, onPathSelectionChange, onPathUpdate, onMarkerUpdate, onLabelUpdate],
   );
 
   const screenPointFromPointer = (event: PositionedEvent): ScreenPoint => {
@@ -859,14 +902,16 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     }
     const screenPoint = screenPointFromPointer(event);
     const worldPoint = reportPointerWorld(screenPoint);
+    // Canvas interactions take keyboard ownership away from stale HUD focus.
+    event.currentTarget.focus({ preventScroll: true });
     const currentTool = toolRef.current;
     const panObjectHit =
       currentTool === 'pan' &&
       !protectEnabledRef.current &&
       worldPoint !== null &&
-      (hitTestLabel(labelsRef.current, worldPoint, cameraRef.current.zoom) !== null ||
-        hitTestMarker(markersRef.current, worldPoint, cameraRef.current.zoom) !== null ||
-        hitTestPath(pathsRef.current, worldPoint, 12 / cameraRef.current.zoom) !== null);
+      ((textOpacityRef.current > 0 && hitTestLabel(labelsRef.current, worldPoint, cameraRef.current.zoom) !== null) ||
+        (markerOpacityRef.current > 0 && hitTestMarker(markersRef.current, worldPoint, cameraRef.current.zoom) !== null) ||
+        (pathOpacityRef.current > 0 && hitTestPath(pathsRef.current, worldPoint, 12 / cameraRef.current.zoom) !== null));
     if (shouldClearPanSelection({
       tool: currentTool,
       protectEnabled: protectEnabledRef.current,
@@ -903,7 +948,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     if (currentTool === 'text' && textCreationActiveRef.current && initialGesture === 'select') {
       event.preventDefault();
       const draftPreview = labelPreviewRef.current?.id === 'text-draft' ? labelPreviewRef.current : null;
-      if (draftPreview !== null && hitTestLabel([draftPreview], worldPoint, cameraRef.current.zoom) !== null) {
+      if (textOpacityRef.current > 0 && draftPreview !== null && hitTestLabel([draftPreview], worldPoint, cameraRef.current.zoom) !== null) {
         const dragState: TextCreationDragState = {
           pointerId: event.pointerId,
           startScreenPoint: screenPoint,
@@ -947,16 +992,49 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     }
 
     const postPlacementSelect = currentTool === 'select' && postPlacementMarkerSelectRef.current;
+    const interactivePan = currentTool === 'pan' && !protectEnabledRef.current && initialGesture === 'select';
+    const selectedAtPointerDown = {
+      markerId: selectedMarkerIdRef.current,
+      pathId: selectedPathIdRef.current,
+      labelId: selectedLabelIdRef.current,
+    };
+    const hasSelectedObject = selectedAtPointerDown.markerId !== null ||
+      selectedAtPointerDown.pathId !== null || selectedAtPointerDown.labelId !== null;
+    const allowsLabelInteraction = hasSelectedObject || currentTool === 'select' || currentTool === 'text' || interactivePan;
+    const selectedLabelHit = allowsLabelInteraction && selectedLabelIdRef.current !== null &&
+      hitTestLabel(
+        interactiveLabels(labelsRef.current, labelPreviewRef.current).filter((label) => label.id === selectedLabelIdRef.current),
+        worldPoint, cameraRef.current.zoom,
+      ) !== null;
 
-    if (currentTool === 'marker') {
-      event.preventDefault();
-      const hitMarker = hitTestMarker(markersRef.current, worldPoint, cameraRef.current.zoom);
+    // Explicit handles win over ordinary object hits, including overlapping markers.
+    if (currentTool === 'path' || currentTool === 'select' || interactivePan) {
+      const currentSelected = selectedPath();
+      const controlIndex = currentSelected !== null && currentSelected.objectVersion > 0 &&
+        !pendingPathIdsRef.current.has(currentSelected.id)
+        ? hitSelectedControlPoint(currentSelected, worldPoint) : null;
+      if (controlIndex !== null && currentSelected !== null) {
+        event.preventDefault();
+        pathEditStateRef.current = {
+          pointerId: event.pointerId, path: currentSelected, pointIndex: controlIndex,
+          originalPoints: currentSelected.points, startWorldPoint: worldPoint,
+          startScreenPoint: screenPoint, dragStarted: false,
+        };
+        activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'path-edit' };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        return;
+      }
+    }
+
+    // Resolve markers before Text click-away or Path creation. Tool activation
+    // here means editing an object, not invoking the gallery/placement action.
+    if (!selectedLabelHit && (hasSelectedObject || currentTool === 'marker' || currentTool === 'text' || currentTool === 'path' || currentTool === 'select' || interactivePan)) {
+      const hitMarker = hitTestMarker(visibleOrSelected(markersRef.current, markerOpacityRef.current, selectedMarkerIdRef.current), worldPoint, cameraRef.current.zoom);
       if (hitMarker !== null) {
-        // In Marker mode a normal click is marker interaction, never a new
-        // placement and never an accidental deselection.
-        const wasSelected = selectedMarkerIdRef.current === hitMarker.id;
+        event.preventDefault();
         selectMarker(hitMarker.id);
-        if (wasSelected && hitMarker.objectVersion > 0 && !pendingMarkerIdsRef.current.has(hitMarker.id)) {
+        if (currentTool !== 'marker') activateObjectTool('marker');
+        if (hitMarker.objectVersion > 0 && !pendingMarkerIdsRef.current.has(hitMarker.id)) {
           markerDragStateRef.current = {
             pointerId: event.pointerId,
             marker: hitMarker,
@@ -970,50 +1048,28 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         }
         return;
       }
-      const markerType = armedMarkerTypeRef.current;
-      if (markerType === null) {
-        selectMarker(null);
-        onToolChange('pan');
-        return;
-      }
-      markerPlacementStateRef.current = {
-        pointerId: event.pointerId,
-        screenPoint,
-        point: worldPoint,
-        markerType,
-        moved: false,
-      };
-      activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'marker-place' };
-      event.currentTarget.setPointerCapture(event.pointerId);
-      return;
     }
-
-    const interactivePan = currentTool === 'pan' && !protectEnabledRef.current && initialGesture === 'select';
-
-    const allowsLabelInteraction = currentTool === 'select' || currentTool === 'text' || interactivePan;
-
     if (allowsLabelInteraction) {
-      const hitLabel = hitTestLabel(interactiveLabels(labelsRef.current, labelPreviewRef.current), worldPoint, cameraRef.current.zoom);
+      const hitLabel = hitTestLabel(visibleOrSelected(interactiveLabels(labelsRef.current, labelPreviewRef.current), textOpacityRef.current, selectedLabelIdRef.current), worldPoint, cameraRef.current.zoom);
       if (hitLabel !== null) {
         event.preventDefault();
-        const wasSelected = selectedLabelIdRef.current === hitLabel.id;
         selectLabel(hitLabel.id);
-        if (interactivePan) {
+        if (currentTool !== 'text') {
           activateObjectTool('text');
         }
         if (hitLabel.objectVersion > 0 && !pendingLabelIdsRef.current.has(hitLabel.id)) {
-          if (wasSelected) {
-            labelDragStateRef.current = {
-              pointerId: event.pointerId,
-              label: hitLabel,
-              startScreenPoint: screenPoint,
-              grabOffset: [worldPoint[0] - hitLabel.x, worldPoint[1] - hitLabel.y],
-              dragStarted: false,
-              moved: false,
-            };
-            activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'label-drag' };
-            event.currentTarget.setPointerCapture(event.pointerId);
-          }
+          // Text may select and start a drag candidate in the same gesture.
+          // The shared threshold still makes a stationary click selection-only.
+          labelDragStateRef.current = {
+            pointerId: event.pointerId,
+            label: hitLabel,
+            startScreenPoint: screenPoint,
+            grabOffset: [worldPoint[0] - hitLabel.x, worldPoint[1] - hitLabel.y],
+            dragStarted: false,
+            moved: false,
+          };
+          activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'label-drag' };
+          event.currentTarget.setPointerCapture(event.pointerId);
         }
         return;
       }
@@ -1022,71 +1078,40 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       }
     }
 
-      if (currentTool === 'text' || (currentTool === 'select' && selectedLabelIdRef.current !== null)) {
-        event.preventDefault();
-        void onTextMapClickAway();
-        return;
-    }
-
-    if (currentTool === 'select' || interactivePan) {
-      const hitMarker = hitTestMarker(markersRef.current, worldPoint, cameraRef.current.zoom);
-      if (hitMarker !== null) {
-        event.preventDefault();
-        const wasSelected = selectedMarkerIdRef.current === hitMarker.id;
-        selectMarker(hitMarker.id);
-        if (interactivePan) {
-          activateObjectTool('marker');
-        }
-        if (hitMarker.objectVersion > 0 && !pendingMarkerIdsRef.current.has(hitMarker.id)) {
-          if (wasSelected) {
-            markerDragStateRef.current = {
-              pointerId: event.pointerId,
-              marker: hitMarker,
-              startScreenPoint: screenPoint,
-              grabOffset: [worldPoint[0] - hitMarker.x, worldPoint[1] - hitMarker.y],
-              dragStarted: false,
-              moved: false,
-            };
-            activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'marker-drag' };
-            event.currentTarget.setPointerCapture(event.pointerId);
-          }
-        }
-        return;
-      }
+    if (currentTool === 'select' || interactivePan || hasSelectedObject) {
       // A path may still be hit below this point. Clear marker selection now,
       // then the path branch below may replace it.
       selectMarker(null);
     }
 
-    if (currentTool === 'path' || currentTool === 'select' || interactivePan) {
+    if (currentTool === 'path' || currentTool === 'text' || currentTool === 'select' || interactivePan || hasSelectedObject) {
       const currentSelected = selectedPath();
-      const controlIndex =
-        currentSelected !== null &&
-        currentSelected.objectVersion > 0 &&
-        !pendingPathIdsRef.current.has(currentSelected.id)
-          ? hitSelectedControlPoint(currentSelected, worldPoint)
-          : null;
-      if (controlIndex !== null) {
-        event.preventDefault();
-        pathEditStateRef.current = {
-          pointerId: event.pointerId,
-          path: currentSelected!,
-          pointIndex: controlIndex,
-          startScreenPoint: screenPoint,
-          dragStarted: false,
-        };
-        activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'path-edit' };
-        event.currentTarget.setPointerCapture(event.pointerId);
-        return;
-      }
-
-      const hit = hitTestPath(pathsRef.current, worldPoint, 12 / cameraRef.current.zoom);
+      const hit = (currentSelected === null ? null : hitTestPath([currentSelected], worldPoint, 12 / cameraRef.current.zoom))
+        ?? hitTestPath(visibleOrSelected(pathsRef.current, pathOpacityRef.current, selectedPathIdRef.current), worldPoint, 12 / cameraRef.current.zoom);
       if (hit !== null) {
         event.preventDefault();
+        const wasSelected = selectedPathIdRef.current === hit.id;
         selectPath(hit.id);
-        if (interactivePan) {
+        if (currentTool !== 'path') {
           activateObjectTool('path');
         }
+        // Neutral paths remain two-stage. A transfer from another selected
+        // object begins a whole-path drag candidate in this same gesture.
+        const transferFromAnotherObject = hasSelectedObject && !wasSelected;
+        if ((wasSelected || transferFromAnotherObject) && hit.objectVersion > 0 && !pendingPathIdsRef.current.has(hit.id)) {
+          pathEditStateRef.current = {
+            pointerId: event.pointerId, path: hit, pointIndex: null,
+            originalPoints: hit.points, startWorldPoint: worldPoint,
+            startScreenPoint: screenPoint, dragStarted: false,
+          };
+          activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'path-edit' };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }
+        return;
+      }
+      if (hasSelectedObject) {
+        event.preventDefault();
+        void onSelectedObjectMapClickAway();
         return;
       }
       if (currentTool === 'select' || interactivePan || !pathCreationArmedRef.current) {
@@ -1116,6 +1141,32 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'path-draw' };
       event.currentTarget.setPointerCapture(event.pointerId);
       previewPathDrawing(drawing);
+      return;
+    }
+
+    if (hasSelectedObject) {
+      event.preventDefault();
+      void onSelectedObjectMapClickAway();
+      return;
+    }
+
+    if (currentTool === 'marker') {
+      event.preventDefault();
+      const markerType = armedMarkerTypeRef.current;
+      if (markerType === null) {
+        selectMarker(null);
+        onToolChange('pan');
+        return;
+      }
+      markerPlacementStateRef.current = {
+        pointerId: event.pointerId,
+        screenPoint,
+        point: worldPoint,
+        markerType,
+        moved: false,
+      };
+      activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'marker-place' };
+      event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
 
@@ -1201,7 +1252,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         pathEdit.dragStarted = true;
       }
       event.preventDefault();
-      const draft = replacePathControlPoint(pathEdit.path, pathEdit.pointIndex, worldPoint);
+      const draft = pathEdit.pointIndex === null
+        ? { ...pathEdit.path, points: pathEdit.originalPoints.map((point): WorldPoint => [
+            point[0] + worldPoint[0] - pathEdit.startWorldPoint[0],
+            point[1] + worldPoint[1] - pathEdit.startWorldPoint[1],
+          ]) }
+        : replacePathControlPoint(pathEdit.path, pathEdit.pointIndex, worldPoint);
       pathEdit.path = draft;
       rendererRef.current?.setPathEditPreview(draft);
     }
@@ -1542,7 +1598,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   return (
     <div
       ref={hostRef}
-      className={`map-canvas-host map-canvas-host--${tool}`}
+      tabIndex={-1}
+      className={`map-canvas-host map-canvas-host--${tool}${tool === 'path' && selectedPathId === null ? ' map-canvas-host--path-creation' : ''}`}
       onContextMenu={(event) => event.preventDefault()}
       onPointerCancel={(event) => endPointerInteraction(event, true)}
       onLostPointerCapture={(event) => endPointerInteraction(event, true)}
@@ -1574,6 +1631,10 @@ function isTypingTarget(target: EventTarget | null): boolean {
     target instanceof HTMLTextAreaElement ||
     (target instanceof HTMLElement && target.isContentEditable)
   );
+}
+
+function visibleOrSelected<T extends { id: string }>(objects: readonly T[], opacity: number, selectedId: string | null): readonly T[] {
+  return opacity > 0 ? objects : objects.filter((object) => object.id === selectedId);
 }
 
 function pointsMatch(left: WorldPoint | undefined, right: WorldPoint): boolean {

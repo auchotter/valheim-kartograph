@@ -30,6 +30,7 @@
     "verify:resize": "tsx scripts/verify-resize.ts",
     "verify:schema": "tsx scripts/verify-schema.ts",
     "verify:api": "tsx scripts/verify-api.ts",
+    "verify:import-export": "tsx scripts/verify-import-export.ts",
     "start": "node dist/server/index.js"
   },
   "dependencies": {

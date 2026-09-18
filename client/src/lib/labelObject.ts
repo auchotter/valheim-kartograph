@@ -11,6 +11,7 @@ export interface CompletedLabelGesture {
   y: number;
   text: string;
   fontSize: number;
+  referenceZoom: number;
   rotationDegrees: number;
 }
 
@@ -31,6 +32,7 @@ export function createOptimisticLabel({
   y,
   text,
   fontSize,
+  referenceZoom,
   rotationDegrees,
 }: CompletedLabelGesture & { mapId: Id }): Label {
   const now = new Date().toISOString();
@@ -52,6 +54,7 @@ export function createOptimisticLabel({
     y,
     text,
     fontSize,
+    referenceZoom,
     rotationDegrees: normaliseLabelRotation(rotationDegrees),
   };
 }

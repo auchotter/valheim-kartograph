@@ -109,6 +109,7 @@ export interface Label extends MapObjectBase {
   y: number;
   text: string;
   fontSize: number;
+  referenceZoom: number;
   rotationDegrees: number;
 }
 

@@ -1,5 +1,14 @@
 import type { Id, MapObject, MapRecord } from '../../../shared/domain';
 import { requestEmpty, requestJson } from './http';
+import type { PortableContent, PortableMap } from '../../../shared/portableMap';
+
+export function exportMap(mapId: Id): Promise<PortableContent> {
+  return requestJson(`/api/maps/${mapId}/export`);
+}
+
+export function importMap(snapshot: PortableMap): Promise<{ map: MapRecord; objects: MapObject[] }> {
+  return requestJson('/api/maps/import', { method: 'POST', body: JSON.stringify(snapshot) });
+}
 
 export async function listMaps(): Promise<MapRecord[]> {
   return (await requestJson<{ maps: MapRecord[] }>('/api/maps')).maps;

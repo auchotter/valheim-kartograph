@@ -910,18 +910,18 @@ export function useMapSession() {
     }
   }, [beginPathMutation, finishPathMutation]);
 
-  const removePath = useCallback(async (pathId: Id): Promise<void> => {
+  const removePath = useCallback(async (pathId: Id): Promise<boolean> => {
     const map = currentMapRef.current;
     const previous = objectsRef.current.find(
       (object): object is Path => object.id === pathId && object.objectType === 'path',
     );
     if (map === null || mapActionInFlightRef.current || previous === undefined || previous.mapId !== map.id) {
-      return;
+      return false;
     }
 
     const mapId = map.id;
     if (!beginPathMutation(mapId, pathId)) {
-      return;
+      return false;
     }
     const clientOperationId = crypto.randomUUID();
     trackPendingOperation(clientOperationId, mapId, pathId);
@@ -939,12 +939,13 @@ export function useMapSession() {
         previous.objectVersion,
       );
       if (currentMapRef.current?.id !== mapId) {
-        return;
+        return false;
       }
       updateCurrentMapRevision(mapId, result.mapRevision, previous.orderKey, result.object.updatedAt, currentMapRef, setCurrentMap, localRevisionRef);
+      return true;
     } catch (error) {
       if (currentMapRef.current?.id !== mapId) {
-        return;
+        return false;
       }
       if (error instanceof ApiClientError && error.status === 409) {
         await refreshObjectsAfterConflict(mapId, currentMapRef, setCurrentMap, setObjects, setSaveError, localRevisionRef);
@@ -952,6 +953,7 @@ export function useMapSession() {
         setObjects((current) => replaceObject(current, previous));
         setSaveError(toMessage(error, 'Path deletion failed.'));
       }
+      return false;
     } finally {
       finishPathMutation(mapId, pathId);
       pendingOperationIdsRef.current.delete(clientOperationId);
@@ -1071,7 +1073,7 @@ export function useMapSession() {
     }
   }, [beginMarkerMutation, finishMarkerMutation]);
 
-  const removeMarker = useCallback(async (markerId: Id): Promise<void> => {
+  const removeMarker = useCallback(async (markerId: Id): Promise<boolean> => {
     const map = currentMapRef.current;
     const previous = objectsRef.current.find(
       (object): object is Marker => object.id === markerId && object.objectType === 'marker',
@@ -1082,12 +1084,12 @@ export function useMapSession() {
       previous === undefined ||
       previous.mapId !== map.id
     ) {
-      return;
+      return false;
     }
 
     const mapId = map.id;
     if (!beginMarkerMutation(mapId, markerId)) {
-      return;
+      return false;
     }
     const clientOperationId = crypto.randomUUID();
     trackPendingOperation(clientOperationId, mapId, markerId);
@@ -1105,12 +1107,13 @@ export function useMapSession() {
         previous.objectVersion,
       );
       if (currentMapRef.current?.id !== mapId) {
-        return;
+        return false;
       }
       updateCurrentMapRevision(mapId, result.mapRevision, previous.orderKey, result.object.updatedAt, currentMapRef, setCurrentMap, localRevisionRef);
+      return true;
     } catch (error) {
       if (currentMapRef.current?.id !== mapId) {
-        return;
+        return false;
       }
       if (error instanceof ApiClientError && error.status === 409) {
         await refreshObjectsAfterConflict(mapId, currentMapRef, setCurrentMap, setObjects, setSaveError, localRevisionRef);
@@ -1118,6 +1121,7 @@ export function useMapSession() {
         setObjects((current) => replaceObject(current, previous));
         setSaveError(toMessage(error, 'Marker deletion failed.'));
       }
+      return false;
     } finally {
       finishMarkerMutation(mapId, markerId);
       pendingOperationIdsRef.current.delete(clientOperationId);
@@ -1220,13 +1224,13 @@ export function useMapSession() {
     }
   }, [beginLabelMutation, finishLabelMutation]);
 
-  const removeLabel = useCallback(async (labelId: Id): Promise<void> => {
+  const removeLabel = useCallback(async (labelId: Id): Promise<boolean> => {
     const map = currentMapRef.current;
     const previous = objectsRef.current.find(
       (object): object is Label => object.id === labelId && object.objectType === 'label',
     );
     if (map === null || mapActionInFlightRef.current || previous === undefined || previous.mapId !== map.id || !beginLabelMutation(map.id, labelId)) {
-      return;
+      return false;
     }
 
     const mapId = map.id;
@@ -1245,16 +1249,18 @@ export function useMapSession() {
         labelId,
         previous.objectVersion,
       );
-      if (currentMapRef.current?.id !== mapId) return;
+      if (currentMapRef.current?.id !== mapId) return false;
       updateCurrentMapRevision(mapId, result.mapRevision, previous.orderKey, result.object.updatedAt, currentMapRef, setCurrentMap, localRevisionRef);
+      return true;
     } catch (error) {
-      if (currentMapRef.current?.id !== mapId) return;
+      if (currentMapRef.current?.id !== mapId) return false;
       if (error instanceof ApiClientError && error.status === 409) {
         await refreshObjectsAfterConflict(mapId, currentMapRef, setCurrentMap, setObjects, setSaveError, localRevisionRef);
       } else {
         setObjects((current) => replaceObject(current, previous));
         setSaveError(toMessage(error, 'Text deletion failed.'));
       }
+      return false;
     } finally {
       finishLabelMutation(mapId, labelId);
       pendingOperationIdsRef.current.delete(clientOperationId);

@@ -100,6 +100,17 @@ assert.match(mapToolbarSource, /showsContextualPathControls = tool === 'path'/);
 assert.match(mapToolbarSource, /\{showsContextualPanel && \([\s\S]*className="map-toolbar tool-context-panel"[\s\S]*showsContextualBrushControls && \([\s\S]*<BrushControls[\s\S]*showBiome=\{tool === 'biome_brush'\}/);
 assert.match(mapToolbarSource, /\{showsContextualPanel && \([\s\S]*showsContextualPathControls && \([\s\S]*<PathModePicker pathGeometryType=\{pathGeometryType\}/);
 assert.match(mapToolbarSource, /function BrushControls\([\s\S]*showBiome && <BiomePicker[\s\S]*<BrushSizeControl/);
+assert.match(mapToolbarSource, /function BrushSizeControl\([\s\S]*min="20"[\s\S]*max="1000"[\s\S]*step="10"[\s\S]*value=\{brushWidth\}[\s\S]*onBrushWidthChange\(Number\(event\.target\.value\)\)/);
+assert.match(canvasSource, /brushWidth: brushWidthRef\.current/);
+const brushCursorSource = rendererSource.slice(
+  rendererSource.indexOf('private redrawBrushCursor'),
+  rendererSource.indexOf('private requestStageRender'),
+);
+assert.match(brushCursorSource, /const radius = this\.cursor\.brushWidth \/ 2/);
+assert.match(brushCursorSource, /BRUSH_CURSOR_BACKING_COLOR/);
+assert.match(brushCursorSource, /alpha: 0\.92[\s\S]*width: BRUSH_CURSOR_BACKING_WIDTH_CSS \/ zoom/);
+assert.match(brushCursorSource, /alpha: 0\.96[\s\S]*width: BRUSH_CURSOR_FOREGROUND_WIDTH_CSS \/ zoom/);
+assert.equal((brushCursorSource.match(/\.circle\(this\.cursor\.point\[0\], this\.cursor\.point\[1\], radius\)/g) ?? []).length, 2, 'brush cursor keeps one semantic radius for its backing and foreground strokes');
 assert.match(mapToolbarSource, /const PATH_MODE_OPTIONS:[\s\S]*value: 'freehand'[\s\S]*value: 'straight'[\s\S]*value: 'curve'/);
 assert.match(mapToolbarSource, /function PathModePicker[\s\S]*pickerId="path-mode-picker"[\s\S]*triggerLabel="Path drawing mode"/);
 assert.match(mapToolbarSource, /function ContextualPicker<T extends string>/);
@@ -135,7 +146,15 @@ assert.match(mapMenuSource, /onKeyDown[\s\S]*event\.key === 'Escape'[\s\S]*event
 assert.match(mapMenuSource, /document\.addEventListener\('keydown', onKeyDown\)/);
 assert.match(coordinateSource, /closeOnEscape[\s\S]*event\.preventDefault\(\);[\s\S]*event\.stopPropagation\(\);[\s\S]*onClose\(\)/);
 assert.match(responsiveOverflowSource, /closeOnEscape[\s\S]*event\.preventDefault\(\);[\s\S]*event\.stopPropagation\(\);[\s\S]*setOpen\(false\)/);
-assert.match(canvasSource, /event\.key === 'Escape' && !isTypingTarget\(event\.target\)[\s\S]*armedMarkerTypeRef\.current !== null[\s\S]*clearMarkerPlacement\(\);[\s\S]*activePointerGestureRef\.current !== null[\s\S]*cancelActivePointerGesture\(\);[\s\S]*selectedMarkerIdRef\.current !== null \|\| selectedPathIdRef\.current !== null \|\| selectedLabelIdRef\.current !== null \|\| toolRef\.current !== 'pan'[\s\S]*onToolChange\('pan'\)/);
+const canvasEscapeSource = canvasSource.slice(
+  canvasSource.indexOf("if (event.key === 'Escape')"),
+  canvasSource.indexOf("if (\n        (event.key === 'Delete'"),
+);
+assert.match(canvasEscapeSource, /armedMarkerTypeRef\.current !== null[\s\S]*clearMarkerPlacement\(\);[\s\S]*onToolChange\('pan'\)/, 'armed Marker Escape cancels placement and returns to Pan in one action');
+assert.match(canvasEscapeSource, /activePointerGestureRef\.current !== null[\s\S]*cancelActivePointerGesture\(\);[\s\S]*onToolChange\('pan'\)/, 'active brush/path creation Escape cancels the gesture and returns to Pan');
+assert.match(canvasEscapeSource, /pathCreationArmedRef\.current = false/, 'Escape synchronously clears Path creation ownership before returning to Pan');
+assert.match(canvasEscapeSource, /selectedMarkerIdRef\.current !== null \|\| selectedPathIdRef\.current !== null \|\| selectedLabelIdRef\.current !== null \|\| toolRef\.current !== 'pan'[\s\S]*onToolChange\('pan'\)/, 'idle non-Pan tools and clean selections return to Pan');
+assert.doesNotMatch(canvasEscapeSource, /isTypingTarget\(event\.target\)/, 'clean focused inputs fall through after their own draft handler declines Escape');
 assert.match(canvasSource, /hitTestLabel\(labelsRef\.current, worldPoint, cameraRef\.current\.zoom\)/);
 assert.match(canvasSource, /textCreationActive: boolean/);
 assert.match(canvasSource, /currentTool === 'text' && textCreationActiveRef\.current && initialGesture === 'select'[\s\S]*onTextCreationMapConfirm\(\)/);
@@ -143,7 +162,6 @@ assert.match(canvasSource, /hitTestLabel\(\[draftPreview\], worldPoint, cameraRe
 assert.match(canvasSource, /if \(!labels\.some\(\(label\) => label\.id === preview\.id\)\)[\s\S]*return \[\.\.\.labels, preview\]/);
 assert.match(canvasSource, /const selectedAtPointerDown = \{[\s\S]*const hasSelectedObject =/);
 assert.match(canvasSource, /onSelectedObjectMapClickAway: \(\) => Promise<boolean>;/);
-assert.match(canvasSource, /event\.key === 'Escape' && !isTypingTarget\(event\.target\)/);
 assert.match(canvasSource, /cancelActivePointerGesture\(\);[\s\S]*onToolChange\('pan'\)/);
 assert.match(canvasSource, /currentTool === 'select' && selectedLabelIdRef\.current !== null/);
 assert.match(canvasSource, /text-create-drag/);
@@ -370,7 +388,6 @@ assert.match(workspaceSource, /const APP_VERSION = 'v1\.0'/);
 assert.match(workspaceSource, /debug-info__coordinate-line--versioned[\s\S]*debug-info__version[\s\S]*APP_VERSION/);
 assert.match(workspaceSource, /if \(debugInfoView === 'bug-report'\) \{[\s\S]*setDebugInfoView\('readout'\)/);
 assert.match(workspaceSource, /debugInfoView === 'bug-report'[\s\S]*setDebugInfoView\('settings'\)[\s\S]*debugInfoView === 'settings'/);
-assert.match(workspaceSource, /selectedMarkerId === null && selectedPathId === null && selectedLabelId === null/);
 assert.match(workspaceSource, /debug-info__coordinate-line[\s\S]*<span>X:<\/span>[\s\S]*<span>\{formatCoordinate/);
 assert.match(workspaceSource, /debug-info__coordinate-line[\s\S]*<span>Z:<\/span>[\s\S]*<span>\{formatCoordinate/);
 assert.match(workspaceSource, /debug-info__symbol" aria-hidden="true">\?<\/span>/);
@@ -379,6 +396,11 @@ assert.match(workspaceSource, /const centreValheim = mapToValheimCoordinates\(ma
 assert.match(workspaceSource, /const debugValheim = debugCoordinateMode === 'cursor' \? cursorValheim : centreValheim/);
 assert.doesNotMatch(workspaceSource.slice(workspaceSource.indexOf('const closeOnEscape'), workspaceSource.indexOf("document.addEventListener('keydown', closeOnEscape)")), /closeDebugInfo\(\)|setDebugInfoOpen\(false\)/);
 assert.match(workspaceSource, /closeOnEscape[\s\S]*debugInfoView === 'bug-report'[\s\S]*setDebugInfoView\('settings'\)/);
+const debugEscapeSource = workspaceSource.slice(
+  workspaceSource.indexOf('const closeOnEscape'),
+  workspaceSource.indexOf("document.addEventListener('keydown', closeOnEscape)"),
+);
+assert.doesNotMatch(debugEscapeSource, /selectedMarkerId === null && selectedPathId === null && selectedLabelId === null/, 'the open Debug readout never swallows map-tool Escape');
 assert.match(stylesSource, /\.map-workspace \{[\s\S]*--hud-edge-inset: 14px/);
 assert.match(stylesSource, /\.map-top-hud \{[\s\S]*top: var\(--hud-edge-inset\)[\s\S]*left: var\(--hud-edge-inset\)/);
 assert.match(stylesSource, /\.debug-info \{[\s\S]*bottom: var\(--hud-edge-inset\)[\s\S]*left: var\(--hud-edge-inset\)/);

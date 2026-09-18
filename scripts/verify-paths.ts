@@ -14,6 +14,9 @@ import {
 import {
   dottedPathVisualStyle,
   pathColorForVisibleBiome,
+  textColorForVisibleBiome,
+  terrainContrastClassForBiome,
+  MAP_TEXT_NORMAL_COLOR,
   PATH_DARK_COLOR,
   PATH_DOT_RADIUS_CSS,
   PATH_DOT_SPACING_CSS,
@@ -21,6 +24,7 @@ import {
 } from '../client/src/lib/pathVisualStyle.ts';
 import { resolveVisibleBiomeAtPoint } from '../client/src/lib/terrainVisibility.ts';
 import { initialPointerGesture, shouldClearPanSelection } from '../client/src/lib/pointerGesture.ts';
+import { markerTextureUrl } from '../client/src/lib/markerIcons.ts';
 
 const viewport = { minX: -10, minY: -10, maxX: 10, maxY: 10 };
 assert.deepEqual(visibleSegmentRange([-100, 0], [100, 0], viewport), [0.45, 0.55]);
@@ -122,9 +126,21 @@ for (const zoom of [0.1, 0.5, 1, 4, 8]) {
 assert.equal(pathColorForVisibleBiome(null), PATH_DARK_COLOR);
 assert.equal(pathColorForVisibleBiome('mountains'), PATH_DARK_COLOR);
 assert.equal(pathColorForVisibleBiome('ocean'), PATH_DARK_COLOR);
-for (const biome of ['meadows', 'black_forest', 'swamp', 'plains', 'mistlands', 'ashlands', 'lava', 'deep_north'] as const) {
+assert.equal(pathColorForVisibleBiome('deep_north'), PATH_DARK_COLOR, 'Deep North shares Mountain path contrast');
+for (const biome of ['meadows', 'black_forest', 'swamp', 'plains', 'mistlands', 'ashlands', 'lava'] as const) {
   assert.equal(pathColorForVisibleBiome(biome), PATH_LIGHT_COLOR);
 }
+
+// Shared semantic contrast keeps Path classification and map text decisions
+// grounded in the same resolved terrain vocabulary.
+assert.equal(terrainContrastClassForBiome('mountains'), terrainContrastClassForBiome('deep_north'));
+assert.equal(textColorForVisibleBiome('black_forest'), PATH_LIGHT_COLOR, 'Black Forest text uses the approved light contrast shade');
+assert.equal(textColorForVisibleBiome('ashlands'), 0x322e29, 'Ashlands text is the normal text colour scaled by 0.8 per RGB channel');
+assert.equal(textColorForVisibleBiome('mistlands'), 0x322e29, 'Mistlands shares Ashlands\' 20% darkened map text colour');
+assert.equal(textColorForVisibleBiome('mistlands'), textColorForVisibleBiome('ashlands'));
+assert.equal(textColorForVisibleBiome('meadows'), MAP_TEXT_NORMAL_COLOR);
+assert.equal(textColorForVisibleBiome('mountains'), MAP_TEXT_NORMAL_COLOR);
+assert.equal(textColorForVisibleBiome(null), MAP_TEXT_NORMAL_COLOR);
 
 assert.equal(typeof readFileSync(new URL('../client/src/lib/pathVisibility.ts', import.meta.url), 'utf8'), 'string');
 
@@ -169,6 +185,42 @@ const terrainHistory: BiomeStroke[] = [
 assert.equal(resolveVisibleBiomeAtPoint(terrainHistory, [75, 0]), null, 'erase should expose parchment');
 assert.equal(resolveVisibleBiomeAtPoint(terrainHistory, [0, 0]), 'ashlands', 'later paint should win after erase');
 assert.equal(resolveVisibleBiomeAtPoint(terrainHistory, [1000, 1000]), null, 'unpainted terrain is parchment');
+const textContrastTerrain: BiomeStroke[] = [
+  stroke({ orderKey: 1, mode: 'paint', biome: 'meadows', points: [[0, 0]] }),
+  stroke({ orderKey: 2, mode: 'paint', biome: 'black_forest', points: [[0, 0]] }),
+  stroke({ orderKey: 3, mode: 'erase', biome: null, points: [[0, 0]] }),
+  stroke({ orderKey: 4, mode: 'paint', biome: 'ashlands', points: [[0, 0]] }),
+];
+assert.equal(
+  textColorForVisibleBiome(resolveVisibleBiomeAtPoint(textContrastTerrain, [0, 0])),
+  0x322e29,
+  'text contrast follows the final chronological terrain result',
+);
+assert.equal(
+  textColorForVisibleBiome(resolveVisibleBiomeAtPoint(textContrastTerrain.slice(0, 3), [0, 0])),
+  MAP_TEXT_NORMAL_COLOR,
+  'erasing a contrast biome restores the normal text colour',
+);
+const markerTerrainTransition: BiomeStroke[] = [
+  stroke({ orderKey: 1, mode: 'paint', biome: 'meadows', points: [[0, 0]] }),
+];
+assert.equal(
+  markerTextureUrl('trade', false, resolveVisibleBiomeAtPoint(markerTerrainTransition, [0, 0])),
+  '/markers/5-Trader.png',
+  'a stationary Marker starts with the base artwork on Meadows',
+);
+markerTerrainTransition.push(stroke({ orderKey: 2, mode: 'paint', biome: 'ashlands', points: [[0, 0]] }));
+assert.equal(
+  markerTextureUrl('trade', false, resolveVisibleBiomeAtPoint(markerTerrainTransition, [0, 0])),
+  '/markers/5-Trader-Ashlands.png',
+  'a terrain repaint changes the same Marker\'s render-only artwork',
+);
+markerTerrainTransition.push(stroke({ orderKey: 3, mode: 'erase', biome: null, points: [[0, 0]] }));
+assert.equal(
+  markerTextureUrl('trade', false, resolveVisibleBiomeAtPoint(markerTerrainTransition, [0, 0])),
+  '/markers/5-Trader.png',
+  'an erase restores the canonical artwork at the unchanged Marker coordinate',
+);
 
 for (const tool of ['biome_brush', 'eraser', 'path', 'marker', 'select'] as const) {
   assert.equal(
@@ -202,6 +254,7 @@ const rendererSource = readFileSync(
   'utf8',
 );
 const workspaceSource = readFileSync(new URL('../client/src/components/MapWorkspace.tsx', import.meta.url), 'utf8');
+const sessionSource = readFileSync(new URL('../client/src/state/useMapSession.ts', import.meta.url), 'utf8');
 const stylesSource = readFileSync(new URL('../client/src/styles.css', import.meta.url), 'utf8');
 const dottedPathStart = rendererSource.indexOf('function drawDottedPath');
 const strokeStart = rendererSource.indexOf('function createStrokeRenderable', dottedPathStart);
@@ -213,6 +266,8 @@ assert.match(dottedPathSource, /pathColorForVisibleBiome/);
 assert.match(dottedPathSource, /radiusWorld/);
 assert.doesNotMatch(dottedPathSource, /HALO|halo|outline|Filter|RenderTexture/);
 assert.doesNotMatch(dottedPathSource, /Filter|RenderTexture/);
+assert.match(rendererSource, /textColorAtPoint/);
+assert.match(rendererSource, /rebuildMarkers\(\);\s*\n\s*this\.rebuildLabels\(\);/);
 assert.match(rendererSource, /setPathsOpacity/);
 assert.match(rendererSource, /graphic\.alpha = id === this\.selectedPathId \? 1 : this\.pathOpacity/);
 assert.match(rendererSource, /pathSelection/);
@@ -240,6 +295,20 @@ assert.match(canvasSourceForGestures(), /selectPath\(id\)/);
 assert.match(canvasSourceForGestures(), /pathCreationArmedRef\.current = false/);
 assert.match(canvasSourceForGestures(), /if \(currentTool === 'path'\)/);
 assert.match(canvasSourceForGestures(), /selectPath\(null\);[\s\S]*onToolChange\('pan'\)/);
+const pointerRoutingSource = pointerSource.slice(pointerSource.indexOf('const handlePointerDown'));
+assert.ok(pointerRoutingSource.indexOf("if (initialGesture === 'path-draw')") < pointerRoutingSource.indexOf('const hitMarker ='), 'armed Path creation must precede Marker hit routing');
+assert.ok(pointerRoutingSource.indexOf("if (initialGesture === 'path-draw')") < pointerRoutingSource.indexOf('const hitLabel ='), 'armed Path creation must precede Label hit routing');
+assert.ok(pointerRoutingSource.indexOf("if (initialGesture === 'path-draw')") < pointerRoutingSource.indexOf('const hit = (currentSelected'), 'armed Path creation must precede Path hit routing');
+assert.ok(pointerRoutingSource.indexOf("if (currentTool === 'text' && textCreationActiveRef.current") < pointerRoutingSource.indexOf('const hitMarker ='), 'active Text creation must precede Marker hit routing');
+assert.match(sessionSource, /const removePath = useCallback\(async \(pathId: Id\): Promise<boolean>/);
+assert.match(sessionSource, /const removeLabel = useCallback\(async \(labelId: Id\): Promise<boolean>/);
+assert.match(workspaceSource, /const deletePath = useCallback\(async[\s\S]*await mapSession\.removePath\(pathId\)[\s\S]*if \(!deleted\) return false;[\s\S]*finishDeletedObjectInteraction\(\)/);
+assert.match(workspaceSource, /const deleteLabel = useCallback\(async[\s\S]*await mapSession\.removeLabel\(labelId\)[\s\S]*if \(!deleted\) return false;[\s\S]*finishDeletedObjectInteraction\(\)/);
+const deleteKeySource = pointerSource.slice(pointerSource.indexOf("event.key === 'Delete'"), pointerSource.indexOf('const onKeyUp'));
+assert.doesNotMatch(deleteKeySource, /onPathSelectionChange\(null\);\s*void onPathDelete/, 'keyboard path deletion must wait for success finalization');
+assert.doesNotMatch(deleteKeySource, /onLabelSelectionChange\(null\);\s*void onLabelDelete/, 'keyboard text deletion must wait for success finalization');
+assert.match(deleteKeySource, /void onPathDelete\(path\.id\)/);
+assert.match(deleteKeySource, /void onLabelDelete\(label\.id\)/);
 assert.match(workspaceSource, /className="map-top-hud"/);
 assert.match(workspaceSource, /className="map-top-hud__utility map-top-hud__utility--opacity"/);
 assert.match(workspaceSource, /className="map-top-hud__tools"/);

@@ -19,6 +19,7 @@ interface MapToolbarProps {
   hasSelectedMarker: boolean;
   selectedMarkerPending: boolean;
   selectedMarker: Marker | null;
+  markerCaptionAutoFocusRequested: boolean;
   hasSelectedLabel: boolean;
   selectedLabelPending: boolean;
   selectedLabel: Label | null;
@@ -39,6 +40,7 @@ interface MapToolbarProps {
   onDeleteSelectedLabel: () => void;
   onMarkerCaptionDraftChange: (markerId: string, draft: string | null) => void;
   onMarkerUpdate: (marker: Marker) => Promise<boolean>;
+  onMarkerCaptionAutoFocusConsumed: (markerId: string) => void;
   onTextCreationDraftChange: (draft: string) => void;
   onTextCreationCommit: () => void;
   onTextCreationCancel: () => void;
@@ -62,6 +64,7 @@ export function MapToolbar({
   hasSelectedMarker,
   selectedMarkerPending,
   selectedMarker,
+  markerCaptionAutoFocusRequested,
   hasSelectedLabel,
   selectedLabelPending,
   selectedLabel,
@@ -82,6 +85,7 @@ export function MapToolbar({
   onDeleteSelectedLabel,
   onMarkerCaptionDraftChange,
   onMarkerUpdate,
+  onMarkerCaptionAutoFocusConsumed,
   onTextCreationDraftChange,
   onTextCreationCommit,
   onTextCreationCancel,
@@ -178,6 +182,8 @@ export function MapToolbar({
             captionDraft={markerCaptionDraft}
             onCaptionDraftChange={onMarkerCaptionDraftChange}
             onUpdate={onMarkerUpdate}
+            autoFocusRequested={markerCaptionAutoFocusRequested}
+            onAutoFocusConsumed={onMarkerCaptionAutoFocusConsumed}
             className="marker-caption-field__input"
           />
         )}
@@ -348,6 +354,10 @@ function TextAnnotationControls({
               void onConfirmSelectedObject().finally(() => { committingRef.current = false; });
             }
           } else if (event.key === 'Escape') {
+            // A selected Text field with no draft is not an active editor.
+            // Let the canvas fallback deselect it and return to Pan. A new
+            // Text creation draft always owns Escape, including an empty one.
+            if (label !== null && draft === undefined) return;
             event.preventDefault();
             event.stopPropagation();
             // The ensuing input blur must not turn a cancelled draft into a
@@ -448,7 +458,7 @@ function BrushSizeControl({
         className="biome-brush-controls__slider"
         type="range"
         min="20"
-        max="500"
+        max="1000"
         step="10"
         value={brushWidth}
         aria-label="Brush size"

@@ -7,13 +7,14 @@ interface MarkerGalleryProps {
   armedMarkerType: string | null;
   onSelect: (markerType: string) => void;
   onClose: () => void;
+  onEscape: () => void;
 }
 
 /** A single, uncluttered icon gallery for the supplied marker PNG set. */
 const GALLERY_VIEWPORT_MARGIN = 12;
 const GALLERY_OFFSET = 4;
 
-export function MarkerGallery({ open, anchorRef, armedMarkerType, onSelect, onClose }: MarkerGalleryProps) {
+export function MarkerGallery({ open, anchorRef, armedMarkerType, onSelect, onClose, onEscape }: MarkerGalleryProps) {
   const galleryRef = useRef<HTMLElement>(null);
   const [position, setPosition] = useState({
     left: GALLERY_VIEWPORT_MARGIN,
@@ -78,7 +79,7 @@ export function MarkerGallery({ open, anchorRef, armedMarkerType, onSelect, onCl
       }
       event.preventDefault();
       event.stopPropagation();
-      onClose();
+      onEscape();
     };
 
     document.addEventListener('pointerdown', closeForOutsidePointer, true);
@@ -87,7 +88,7 @@ export function MarkerGallery({ open, anchorRef, armedMarkerType, onSelect, onCl
       document.removeEventListener('pointerdown', closeForOutsidePointer, true);
       document.removeEventListener('keydown', closeForEscape, true);
     };
-  }, [onClose, open]);
+  }, [onClose, onEscape, open]);
 
   if (!open) {
     return null;

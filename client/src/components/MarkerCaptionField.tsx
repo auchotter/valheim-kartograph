@@ -9,6 +9,8 @@ export function MarkerCaptionField({
   onCaptionDraftChange,
   onUpdate,
   onConfirm,
+  autoFocusRequested = false,
+  onAutoFocusConsumed,
   className = 'marker-caption-field__input',
 }: {
   marker: Marker;
@@ -17,12 +19,16 @@ export function MarkerCaptionField({
   onCaptionDraftChange: (markerId: string, draft: string | null) => void;
   onUpdate: (marker: Marker) => Promise<boolean>;
   onConfirm: () => Promise<boolean>;
+  /** A placement-only, one-shot request. Existing selection never sets it. */
+  autoFocusRequested?: boolean;
+  onAutoFocusConsumed?: (markerId: string) => void;
   className?: string;
 }) {
   const fieldRef = useRef<HTMLSpanElement>(null);
   const captionInputRef = useRef<HTMLInputElement>(null);
   const caption = captionDraft ?? marker.name ?? '';
   const captionRef = useRef(caption);
+  const hasCaptionDraftRef = useRef(captionDraft !== undefined);
   const captionCommitInFlightRef = useRef(false);
   const editable = !disabled && marker.objectVersion > 0;
 
@@ -30,12 +36,23 @@ export function MarkerCaptionField({
     captionRef.current = caption;
   }, [caption]);
 
+  useEffect(() => {
+    hasCaptionDraftRef.current = captionDraft !== undefined;
+  }, [captionDraft]);
+
+  useEffect(() => {
+    if (!autoFocusRequested || !editable) return;
+    captionInputRef.current?.focus({ preventScroll: true });
+    onAutoFocusConsumed?.(marker.id);
+  }, [autoFocusRequested, editable, marker.id, onAutoFocusConsumed]);
+
   const commitCaption = async (): Promise<void> => {
     if (captionCommitInFlightRef.current) {
       return;
     }
     const name = normaliseMarkerCaption(captionRef.current);
     if (name === marker.name) {
+      hasCaptionDraftRef.current = false;
       onCaptionDraftChange(marker.id, null);
       return;
     }
@@ -47,12 +64,14 @@ export function MarkerCaptionField({
     const saved = await onUpdate({ ...marker, name });
     captionCommitInFlightRef.current = false;
     if (saved) {
+      hasCaptionDraftRef.current = false;
       onCaptionDraftChange(marker.id, null);
     }
   };
 
   const cancelCaption = () => {
     captionRef.current = marker.name ?? '';
+    hasCaptionDraftRef.current = false;
     onCaptionDraftChange(marker.id, null);
   };
 
@@ -84,6 +103,7 @@ export function MarkerCaptionField({
         aria-label="Marker caption"
         onChange={(event) => {
           captionRef.current = event.target.value;
+          hasCaptionDraftRef.current = true;
           onCaptionDraftChange(marker.id, event.target.value);
         }}
         onBlur={() => void commitCaption()}
@@ -95,6 +115,9 @@ export function MarkerCaptionField({
             captionCommitInFlightRef.current = true;
             void onConfirm().finally(() => { captionCommitInFlightRef.current = false; });
           } else if (event.key === 'Escape') {
+            // A clean focused caption is not a transient editor state. Let
+            // the canvas own that Escape so it can deselect and return to Pan.
+            if (!hasCaptionDraftRef.current) return;
             event.preventDefault();
             event.stopPropagation();
             cancelCaption();

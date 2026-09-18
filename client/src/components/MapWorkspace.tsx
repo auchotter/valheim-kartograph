@@ -49,6 +49,7 @@ export function MapWorkspace() {
   const [markerPreview, setMarkerPreview] = useState<Marker | null>(null);
   const [labelPreview, setLabelPreview] = useState<Label | null>(null);
   const [markerCaptionDrafts, setMarkerCaptionDrafts] = useState<Record<string, string>>({});
+  const [markerCaptionAutoFocusId, setMarkerCaptionAutoFocusId] = useState<string | null>(null);
   const [labelDrafts, setLabelDrafts] = useState<Record<string, string>>({});
   const [textCreationDraft, setTextCreationDraft] = useState('');
   const [textCreationPosition, setTextCreationPosition] = useState<WorldPoint | null>(null);
@@ -61,11 +62,19 @@ export function MapWorkspace() {
   const [debugInfoView, setDebugInfoView] = useState<DebugInfoView>('readout');
   const [debugCoordinateMode, setDebugCoordinateMode] = useState<DebugCoordinateMode>(initialUiPreferences.debugCoordinateMode);
   const debugInfoRef = useRef<HTMLDivElement>(null);
-  const vegvisirDirectionPreviewRef = useRef<number | null>(null);
+  const selectedMarkerIdRef = useRef<string | null>(null);
+  // Keep the newest visible direction through the entire confirmation
+  // lifecycle. `saved` prevents a slider pointer-up from issuing duplicate
+  // updates while still leaving the value authoritative for click-away/Enter.
+  const vegvisirDirectionPreviewRef = useRef<{ markerId: string; direction: number; saved: boolean } | null>(null);
   const labelPreviewRef = useRef<Label | null>(null);
   const textCreationCommitPromiseRef = useRef<Promise<Label | null> | null>(null);
   const labelCommitPromisesRef = useRef(new Map<string, Promise<boolean>>());
   const markerCommitPromisesRef = useRef(new Map<string, Promise<boolean>>());
+  // The Marker payload currently being persisted lets confirmation avoid
+  // replaying an identical caption/direction update that pointerdown/blur has
+  // already started.
+  const markerCommitDraftsRef = useRef(new Map<string, Marker>());
   const pathCommitPromisesRef = useRef(new Map<string, Promise<boolean>>());
   const confirmationInFlightRef = useRef(false);
   const textCreationConfirmInFlightRef = useRef(false);
@@ -108,13 +117,6 @@ export function MapWorkspace() {
         event.preventDefault();
         event.stopPropagation();
         setDebugInfoView('readout');
-      } else if (selectedMarkerId === null && selectedPathId === null && selectedLabelId === null) {
-        // Keep the persistent Debug shell open, but consume Escape when there
-        // is no selected map object for the canvas to dismiss. If an object is
-        // selected, let the app-level canvas fallback deselect it and switch
-        // to Pan without collapsing Debug.
-        event.preventDefault();
-        event.stopPropagation();
       }
     };
 
@@ -122,12 +124,13 @@ export function MapWorkspace() {
     return () => {
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [coordinateNavigatorOpen, debugInfoOpen, debugInfoView, markerGalleryOpen, opacityPopupOpen, selectedLabelId, selectedMarkerId, selectedPathId]);
+  }, [coordinateNavigatorOpen, debugInfoOpen, debugInfoView, markerGalleryOpen, opacityPopupOpen]);
 
   useEffect(() => {
     const cleared = clearMarkerInteraction();
     setSelectedPathId(null);
     setSelectedMarkerId(cleared.selectedMarkerId);
+    selectedMarkerIdRef.current = cleared.selectedMarkerId;
     setSelectedLabelId(null);
     setMarkerPreview(null);
     setLabelPreviewState(null);
@@ -139,6 +142,7 @@ export function MapWorkspace() {
     setTextCreationSize(DEFAULT_LABEL_FONT_SIZE);
     setMarkerGalleryOpen(false);
     vegvisirDirectionPreviewRef.current = null;
+    setMarkerCaptionAutoFocusId(null);
   }, [mapSession.currentMap?.id, setLabelPreviewState]);
 
   const enterNeutralPan = useCallback(() => {
@@ -147,6 +151,7 @@ export function MapWorkspace() {
     const cleared = clearMarkerInteraction();
     setArmedMarkerType(cleared.armedMarkerType);
     setSelectedMarkerId(cleared.selectedMarkerId);
+    selectedMarkerIdRef.current = cleared.selectedMarkerId;
     setSelectedLabelId(null);
     setSelectedPathId(null);
     setMarkerPreview(null);
@@ -154,7 +159,14 @@ export function MapWorkspace() {
     setTextCreationDraft('');
     setTextCreationPosition(null);
     setLabelDrafts({});
+    vegvisirDirectionPreviewRef.current = null;
+    setMarkerCaptionAutoFocusId(null);
   }, [setLabelPreviewState]);
+
+  const finishDeletedObjectInteraction = useCallback(() => {
+    enterNeutralPan();
+    canvasRef.current?.focus();
+  }, [enterNeutralPan]);
 
   const cancelTextCreation = useCallback(() => {
     setTextCreationDraft('');
@@ -179,6 +191,7 @@ export function MapWorkspace() {
     if (nextTool === 'biome_brush' || nextTool === 'eraser' || nextTool === 'path') {
       const cleared = clearMarkerInteraction();
       setSelectedMarkerId(cleared.selectedMarkerId);
+      selectedMarkerIdRef.current = cleared.selectedMarkerId;
       setMarkerPreview(null);
     }
   }, [cancelTextCreation, enterNeutralPan]);
@@ -193,6 +206,13 @@ export function MapWorkspace() {
     setMarkerGalleryOpen(false);
   }, []);
 
+  const cancelMarkerGalleryAndReturnToPan = useCallback(() => {
+    // Unlike unrelated transient popups, the Gallery is part of the Marker
+    // placement workflow. One Escape abandons that workflow completely.
+    enterNeutralPan();
+    canvasRef.current?.focus();
+  }, [enterNeutralPan]);
+
   const disarmMarkerPlacement = useCallback(() => {
     setArmedMarkerType(null);
   }, []);
@@ -201,15 +221,23 @@ export function MapWorkspace() {
     setSelectedPathId(pathId);
     if (pathId !== null) {
       setSelectedMarkerId(null);
+      selectedMarkerIdRef.current = null;
       setMarkerPreview(null);
+      vegvisirDirectionPreviewRef.current = null;
+      setMarkerCaptionAutoFocusId(null);
       setSelectedLabelId(null);
       setLabelPreviewState(null);
     }
   }, [setLabelPreviewState]);
 
   const selectMarker = useCallback((markerId: string | null) => {
+    const previousMarkerId = selectedMarkerIdRef.current;
     setSelectedMarkerId(markerId);
-    vegvisirDirectionPreviewRef.current = null;
+    selectedMarkerIdRef.current = markerId;
+    if (markerId !== previousMarkerId) {
+      vegvisirDirectionPreviewRef.current = null;
+    }
+    setMarkerCaptionAutoFocusId((requestedId) => requestedId === markerId ? requestedId : null);
     if (markerId !== null) {
       setSelectedPathId(null);
       setSelectedLabelId(null);
@@ -224,7 +252,10 @@ export function MapWorkspace() {
     setSelectedLabelId(labelId);
     if (labelId !== null) {
       setSelectedMarkerId(null);
+      selectedMarkerIdRef.current = null;
       setMarkerPreview(null);
+      vegvisirDirectionPreviewRef.current = null;
+      setMarkerCaptionAutoFocusId(null);
       setSelectedPathId(null);
     }
     if (labelId === null) {
@@ -236,15 +267,16 @@ export function MapWorkspace() {
     async (marker: Marker): Promise<boolean> => {
       const pending = markerCommitPromisesRef.current.get(marker.id);
       if (pending) return pending;
-      setMarkerPreview(null);
       const promise = mapSession.saveMarkerUpdate(marker);
       markerCommitPromisesRef.current.set(marker.id, promise);
+      markerCommitDraftsRef.current.set(marker.id, marker);
       try {
         const saved = await promise;
-        if (!saved) setMarkerPreview(marker);
+        if (!saved && selectedMarkerIdRef.current === marker.id) setMarkerPreview(marker);
         return saved;
       } finally {
         markerCommitPromisesRef.current.delete(marker.id);
+        markerCommitDraftsRef.current.delete(marker.id);
       }
     },
     [mapSession.saveMarkerUpdate],
@@ -272,19 +304,17 @@ export function MapWorkspace() {
     });
   }, []);
 
-  const deleteMarker = useCallback(
-    (markerId: string) => {
-      setSelectedMarkerId(null);
-      setMarkerPreview(null);
-      updateMarkerCaptionDraft(markerId, null);
-      void mapSession.removeMarker(markerId);
-    },
-    [mapSession.removeMarker, updateMarkerCaptionDraft],
-  );
+  const deleteMarker = useCallback(async (markerId: string): Promise<boolean> => {
+    const deleted = await mapSession.removeMarker(markerId);
+    if (!deleted) return false;
+    updateMarkerCaptionDraft(markerId, null);
+    finishDeletedObjectInteraction();
+    return true;
+  }, [finishDeletedObjectInteraction, mapSession.removeMarker, updateMarkerCaptionDraft]);
 
   const deleteSelectedMarker = useCallback(() => {
     if (selectedMarkerId !== null) {
-      deleteMarker(selectedMarkerId);
+      void deleteMarker(selectedMarkerId);
     }
   }, [deleteMarker, selectedMarkerId]);
 
@@ -515,38 +545,101 @@ export function MapWorkspace() {
     }
   }, [selectedLabel, updateLabel]);
 
-  const deleteLabel = useCallback((labelId: string) => {
-    setSelectedLabelId(null);
-    setLabelPreviewState(null);
+  const deleteLabel = useCallback(async (labelId: string): Promise<boolean> => {
+    const deleted = await mapSession.removeLabel(labelId);
+    if (!deleted) return false;
     updateLabelDraft(labelId, null);
-    void mapSession.removeLabel(labelId);
-  }, [mapSession.removeLabel, setLabelPreviewState, updateLabelDraft]);
+    finishDeletedObjectInteraction();
+    return true;
+  }, [finishDeletedObjectInteraction, mapSession.removeLabel, updateLabelDraft]);
+
+  const deletePath = useCallback(async (pathId: string): Promise<boolean> => {
+    const deleted = await mapSession.removePath(pathId);
+    if (!deleted) return false;
+    finishDeletedObjectInteraction();
+    return true;
+  }, [finishDeletedObjectInteraction, mapSession.removePath]);
 
   const selectedMarker = mapSession.markers.find((marker) => marker.id === selectedMarkerId) ?? null;
+
+  // A placement-only request survives the optimistic Marker while its caption
+  // input is disabled, then is consumed by MarkerCaptionField once the server
+  // response makes that exact selected Marker editable.
+  useEffect(() => {
+    if (markerCaptionAutoFocusId === null) return;
+    const requestedMarker = mapSession.markers.find((marker) => marker.id === markerCaptionAutoFocusId);
+    if (
+      selectedMarkerId !== markerCaptionAutoFocusId ||
+      (requestedMarker === undefined && !mapSession.pendingMarkerIds.has(markerCaptionAutoFocusId))
+    ) {
+      setMarkerCaptionAutoFocusId(null);
+    }
+  }, [mapSession.markers, mapSession.pendingMarkerIds, markerCaptionAutoFocusId, selectedMarkerId]);
+
+  const requestMarkerCaptionAutoFocus = useCallback((markerId: string) => {
+    setMarkerCaptionAutoFocusId(markerId);
+  }, []);
+
+  const consumeMarkerCaptionAutoFocus = useCallback((markerId: string) => {
+    setMarkerCaptionAutoFocusId((requestedId) => requestedId === markerId ? null : requestedId);
+  }, []);
+
   const previewVegvisirDirection = useCallback((directionDegrees: number) => {
     if (selectedMarker === null || !isVegvisirMarker(selectedMarker.markerType)) {
       return;
     }
     const direction = normaliseDirectionDegrees(directionDegrees);
-    vegvisirDirectionPreviewRef.current = direction;
+    vegvisirDirectionPreviewRef.current = { markerId: selectedMarker.id, direction, saved: false };
     setMarkerPreview(markerWithDirection(selectedMarker, direction));
   }, [selectedMarker]);
 
-  const commitVegvisirDirection = useCallback(() => {
-    if (selectedMarker === null || !isVegvisirMarker(selectedMarker.markerType)) {
-      return;
+  const persistPendingVegvisirDirection = useCallback(async (marker: Marker | null = selectedMarker): Promise<boolean> => {
+    const pendingDirection = vegvisirDirectionPreviewRef.current;
+    if (
+      marker === null ||
+      !isVegvisirMarker(marker.markerType) ||
+      pendingDirection === null ||
+      pendingDirection.markerId !== marker.id
+    ) {
+      return true;
     }
-    const direction = vegvisirDirectionPreviewRef.current;
-    if (direction === null) {
-      return;
+    if (pendingDirection.saved) {
+      return true;
     }
-    vegvisirDirectionPreviewRef.current = null;
-    const draft = markerWithDirection(selectedMarker, direction);
-    setMarkerPreview(null);
-    if (draft.directionDegrees !== selectedMarker.directionDegrees) {
-      void updateMarker(draft);
+    const draft = markerWithDirection(marker, pendingDirection.direction);
+    if (draft.directionDegrees === marker.directionDegrees) {
+      pendingDirection.saved = true;
+      return true;
     }
+    const saved = await updateMarker(draft);
+    if (saved && vegvisirDirectionPreviewRef.current === pendingDirection) {
+      // The preview remains rendered until the selected-object confirmation
+      // has completed. Clearing it here can expose the old Marker for a frame
+      // before React has rendered the optimistic/server replacement.
+      pendingDirection.saved = true;
+    }
+    return saved;
   }, [selectedMarker, updateMarker]);
+
+  const commitVegvisirDirection = useCallback(() => {
+    if (selectedMarker === null || markerCaptionDrafts[selectedMarker.id] !== undefined) {
+      // Enter/click-away aggregates a dirty caption and direction into one
+      // normal Marker update instead of racing two independent updates.
+      return;
+    }
+    void persistPendingVegvisirDirection(selectedMarker);
+  }, [markerCaptionDrafts, persistPendingVegvisirDirection, selectedMarker]);
+
+  const updateMarkerWithLatestVegvisirDirection = useCallback((marker: Marker): Promise<boolean> => {
+    const pendingDirection = vegvisirDirectionPreviewRef.current;
+    const draft =
+      pendingDirection !== null &&
+      pendingDirection.markerId === marker.id &&
+      isVegvisirMarker(marker.markerType)
+        ? markerWithDirection(marker, pendingDirection.direction)
+        : marker;
+    return updateMarker(draft);
+  }, [updateMarker]);
 
   // All selected-object Enter actions await the same logical save. The key
   // owner prevents native activation of a previously focused HUD button.
@@ -562,14 +655,35 @@ export function MapWorkspace() {
       }
       if (selectedMarker !== null) {
         const pending = markerCommitPromisesRef.current.get(selectedMarker.id);
+        const pendingDraft = markerCommitDraftsRef.current.get(selectedMarker.id);
         if (pending === undefined && mapSession.pendingMarkerIds.has(selectedMarker.id)) return false;
+        const captionDraft = markerCaptionDrafts[selectedMarker.id];
+        const pendingDirection = vegvisirDirectionPreviewRef.current?.markerId === selectedMarker.id
+          ? vegvisirDirectionPreviewRef.current
+          : null;
+        const preview = markerPreview?.id === selectedMarker.id ? markerPreview : selectedMarker;
+        const name = normaliseMarkerCaption(captionDraft ?? preview.name ?? '');
+        const draft = isVegvisirMarker(preview.markerType)
+          ? markerWithDirection({ ...preview, name }, pendingDirection?.direction ?? preview.directionDegrees ?? 0)
+          : { ...preview, name };
         if (pending !== undefined) {
           if (!(await pending)) return false;
-        } else {
-          const preview = markerPreview?.id === selectedMarker.id ? markerPreview : selectedMarker;
-          const name = normaliseMarkerCaption(markerCaptionDrafts[selectedMarker.id] ?? preview.name ?? '');
-          const draft = { ...preview, name };
-          if ((draft.name !== selectedMarker.name || draft.directionDegrees !== selectedMarker.directionDegrees) && !(await updateMarker(draft))) return false;
+          // A slider pointer-up has already persisted a direction-only edit.
+          // A caption draft intentionally deferred that pointer-up save, so it
+          // still needs this one aggregated marker mutation after the prior
+          // caption operation settles.
+          if (
+            captionDraft !== undefined &&
+            (pendingDraft === undefined || pendingDraft.name !== draft.name || pendingDraft.directionDegrees !== draft.directionDegrees)
+          ) {
+            if (!(await updateMarker(draft))) return false;
+            if (pendingDirection !== null && vegvisirDirectionPreviewRef.current === pendingDirection) pendingDirection.saved = true;
+          }
+        } else if (captionDraft !== undefined || pendingDirection?.saved !== true) {
+          if (draft.name !== selectedMarker.name || draft.directionDegrees !== selectedMarker.directionDegrees) {
+            if (!(await updateMarker(draft))) return false;
+          }
+          if (pendingDirection !== null && vegvisirDirectionPreviewRef.current === pendingDirection) pendingDirection.saved = true;
         }
         updateMarkerCaptionDraft(selectedMarker.id, null);
       }
@@ -586,6 +700,10 @@ export function MapWorkspace() {
       confirmationInFlightRef.current = false;
     }
   }, [commitSelectedLabelAndExit, enterNeutralPan, markerCaptionDrafts, markerPreview, selectedLabel, selectedMarker, selectedPathId, updateMarker, updateMarkerCaptionDraft, mapSession.pendingMarkerIds, mapSession.pendingPathIds]);
+
+  const persistSelectedMarkerBeforeSelectionChange = useCallback(() => {
+    void persistPendingVegvisirDirection(selectedMarker);
+  }, [persistPendingVegvisirDirection, selectedMarker]);
   const cursorValheim = cursorWorld === null ? null : mapToValheimCoordinates(cursorWorld[0], cursorWorld[1]);
   const centreValheim = mapToValheimCoordinates(mapSession.camera.cameraX, mapSession.camera.cameraY);
   const debugValheim = debugCoordinateMode === 'cursor' ? cursorValheim : centreValheim;
@@ -739,6 +857,7 @@ export function MapWorkspace() {
             if (next && tool === 'pan') {
               setSelectedPathId(null);
               setSelectedMarkerId(null);
+              selectedMarkerIdRef.current = null;
               setSelectedLabelId(null);
               setLabelPreviewState(null);
             }
@@ -884,12 +1003,14 @@ export function MapWorkspace() {
         onStrokeComplete={mapSession.saveStroke}
         onPathComplete={mapSession.savePath}
         onPathUpdate={updatePath}
-        onPathDelete={mapSession.removePath}
+        onPathDelete={deletePath}
         onPathSelectionChange={selectPath}
         onMarkerComplete={mapSession.saveMarker}
-        onMarkerUpdate={updateMarker}
+        onMarkerUpdate={updateMarkerWithLatestVegvisirDirection}
         onMarkerDelete={deleteMarker}
         onMarkerSelectionChange={selectMarker}
+        onMarkerPlacementSelected={requestMarkerCaptionAutoFocus}
+        onSelectedMarkerBeforeSelectionChange={persistSelectedMarkerBeforeSelectionChange}
         onLabelUpdate={updateLabel}
         onLabelDelete={deleteLabel}
         onLabelSelectionChange={selectLabel}
@@ -940,6 +1061,7 @@ export function MapWorkspace() {
             hasSelectedMarker={selectedMarkerId !== null}
             selectedMarkerPending={selectedMarkerId !== null && mapSession.pendingMarkerIds.has(selectedMarkerId)}
             selectedMarker={selectedMarker}
+            markerCaptionAutoFocusRequested={selectedMarkerId !== null && selectedMarkerId === markerCaptionAutoFocusId}
             markerCaptionDraft={selectedMarker === null ? undefined : markerCaptionDrafts[selectedMarker.id]}
             selectedVegvisir={selectedMarker !== null && isVegvisirMarker(selectedMarker.markerType)}
             vegvisirDirection={selectedMarker?.directionDegrees ?? 0}
@@ -957,9 +1079,12 @@ export function MapWorkspace() {
             onPathGeometryTypeChange={setPathGeometryType}
             onDeleteSelectedPath={() => canvasRef.current?.deleteSelectedPath()}
             onDeleteSelectedMarker={deleteSelectedMarker}
-            onDeleteSelectedLabel={() => selectedLabelId !== null && deleteLabel(selectedLabelId)}
+            onDeleteSelectedLabel={() => {
+              if (selectedLabelId !== null) void deleteLabel(selectedLabelId);
+            }}
             onMarkerCaptionDraftChange={updateMarkerCaptionDraft}
-            onMarkerUpdate={updateMarker}
+            onMarkerUpdate={updateMarkerWithLatestVegvisirDirection}
+            onMarkerCaptionAutoFocusConsumed={consumeMarkerCaptionAutoFocus}
             onTextCreationDraftChange={updateTextCreationDraft}
             onTextCreationCommit={commitTextCreation}
             onTextCreationCancel={() => {
@@ -992,6 +1117,7 @@ export function MapWorkspace() {
         armedMarkerType={armedMarkerType}
         onSelect={selectMarkerGalleryItem}
         onClose={closeMarkerGallery}
+        onEscape={cancelMarkerGalleryAndReturnToPan}
       />
 
       <div className="debug-info" ref={debugInfoRef}>

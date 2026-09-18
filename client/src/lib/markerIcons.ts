@@ -93,16 +93,37 @@ const LEGACY_TYPE_ALIASES: Readonly<Record<string, string>> = {
 
 const FALLBACK_MARKER_ICON = iconsByType.get('pin')!;
 
+// Render-only terrain variants. These deliberately stay outside MARKER_ICONS:
+// Marker data and the Gallery retain canonical types/assets, while Pixi picks
+// the most legible supplied artwork from the final semantic terrain result.
+const TERRAIN_VARIANT_ASSETS: Readonly<Partial<Record<string, Partial<Record<Biome, string>>>>> = {
+  trade: { ashlands: '5-Trader-Ashlands.png' },
+  'cave-2': { mountains: '10-Cave-Snow.png', deep_north: '10-Cave-Snow.png' },
+  fortress: { black_forest: '11-Fortress-Forest.png' },
+  chicken: { mountains: '21-Chicken-Snow.png', deep_north: '21-Chicken-Snow.png' },
+  farm: { plains: '16-Farm-Plains.png' },
+};
+
+function canonicalMarkerType(markerType: string): string {
+  return LEGACY_TYPE_ALIASES[markerType] ?? markerType;
+}
+
 export function markerIconDefinition(markerType: string): MarkerIconDefinition {
-  const resolvedType = LEGACY_TYPE_ALIASES[markerType] ?? markerType;
+  const resolvedType = canonicalMarkerType(markerType);
   return iconsByType.get(resolvedType) ?? legacyIconsByType.get(resolvedType) ?? FALLBACK_MARKER_ICON;
 }
 
-export function markerTextureUrl(markerType: string, directional = false): string {
+/** Returns helper artwork only; Marker data always retains its canonical type. */
+export function markerTerrainVariantAsset(markerType: string, biome: Biome | null): string | null {
+  if (biome === null) return null;
+  return TERRAIN_VARIANT_ASSETS[canonicalMarkerType(markerType)]?.[biome] ?? null;
+}
+
+export function markerTextureUrl(markerType: string, directional = false, biome: Biome | null = null): string {
   const definition = markerIconDefinition(markerType);
   const asset = directional && definition.directionalAsset !== undefined
     ? definition.directionalAsset
-    : definition.asset;
+    : markerTerrainVariantAsset(markerType, biome) ?? definition.asset;
   return `/markers/${asset}`;
 }
 
@@ -125,3 +146,4 @@ export function normaliseMarkerCaption(value: string): string | null {
   const caption = value.trim();
   return caption.length === 0 ? null : caption;
 }
+import type { Biome } from '../../../shared/domain';

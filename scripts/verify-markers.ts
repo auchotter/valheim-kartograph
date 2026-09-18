@@ -8,6 +8,7 @@ import {
   MARKER_ICON_VIEWBOX,
   isVegvisirMarker,
   markerIconDefinition,
+  markerTerrainVariantAsset,
   markerTextureUrl,
   normaliseDirectionDegrees,
   normaliseMarkerCaption,
@@ -48,11 +49,23 @@ const expectedCatalogue: readonly [string, string][] = [
   ['helmet', '32-Helmet.png'], ['spawn', '33-Spawn.png'], ['target', '34-Target.png'], ['pin', '35-Pin.png'],
   ['positive', '36-Positive.png'], ['negative', '37-Negative.png'],
 ];
+const expectedTerrainVariantAssets = [
+  '5-Trader-Ashlands.png',
+  '10-Cave-Snow.png',
+  '11-Fortress-Forest.png',
+  '16-Farm-Plains.png',
+  '21-Chicken-Snow.png',
+  '31_Boss-Dark.png',
+] as const;
 
-assert.equal(suppliedPngs.length, 39, 'the supplied marker directory must retain every PNG');
+assert.ok(suppliedPngs.length >= expectedCatalogue.length, 'the supplied marker directory must retain the canonical Marker artwork');
 assert.equal(MARKER_ICONS.length, 35, 'Lox, Askvin, and Moose are legacy-only; Vergvisir-2 is helper artwork');
 assert.deepEqual(MARKER_ICONS.map(({ type, asset }) => [type, asset]), expectedCatalogue);
 assert.equal(new Set(MARKER_ICONS.map(({ type }) => type)).size, 35);
+for (const asset of expectedTerrainVariantAssets) {
+  assert.ok(suppliedPngs.includes(asset), `user-supplied terrain helper ${asset} must remain available`);
+  assert.equal(MARKER_ICONS.some((icon) => icon.asset === asset), false, `${asset} is render-only, never a Gallery choice`);
+}
 assert.equal(MARKER_ICONS.some(({ type }) => ['lox', 'askvin', 'moose'].includes(type)), false);
 assert.ok(suppliedPngs.includes('28-Vergvisir-1.png'));
 assert.ok(suppliedPngs.includes('28-Vergvisir-2.png'));
@@ -64,6 +77,26 @@ for (const icon of MARKER_ICONS) {
 }
 assert.equal(markerTextureUrl('vegvisir'), '/markers/28-Vergvisir-1.png');
 assert.equal(markerTextureUrl('vegvisir', true), '/markers/28-Vergvisir-2.png');
+assert.equal(markerTextureUrl('trade', false, 'ashlands'), '/markers/5-Trader-Ashlands.png');
+assert.equal(markerTextureUrl('trade', true, 'ashlands'), '/markers/5-Trader-Ashlands.png', 'selected non-directional Markers retain terrain helper artwork');
+assert.equal(markerTextureUrl('trade', false, 'meadows'), '/markers/5-Trader.png');
+assert.equal(markerTextureUrl('cave-2', false, 'mountains'), '/markers/10-Cave-Snow.png');
+assert.equal(markerTextureUrl('cave-2', false, 'deep_north'), '/markers/10-Cave-Snow.png');
+assert.equal(markerTextureUrl('cave-2', false, 'black_forest'), '/markers/10-Cave.png');
+assert.equal(markerTextureUrl('fortress', false, 'black_forest'), '/markers/11-Fortress-Forest.png');
+assert.equal(markerTextureUrl('fortress', false, 'meadows'), '/markers/11-Fortress.png');
+assert.equal(markerTextureUrl('chicken', false, 'mountains'), '/markers/21-Chicken-Snow.png');
+assert.equal(markerTextureUrl('chicken', false, 'deep_north'), '/markers/21-Chicken-Snow.png');
+assert.equal(markerTextureUrl('chicken', false, 'plains'), '/markers/21-Chicken.png');
+assert.equal(markerTextureUrl('boss-2', false, 'black_forest'), '/markers/31-Boss.png');
+assert.equal(markerTextureUrl('boss-2', false, 'mountains'), '/markers/31-Boss.png');
+assert.equal(markerTextureUrl('farm', false, 'plains'), '/markers/16-Farm-Plains.png');
+assert.equal(markerTextureUrl('farm', false, 'meadows'), '/markers/16-Farm.png');
+assert.equal(markerTerrainVariantAsset('trade', 'ashlands'), '5-Trader-Ashlands.png');
+assert.equal(markerTerrainVariantAsset('trade', null), null);
+assert.equal(markerTerrainVariantAsset('boss-2', 'black_forest'), null, 'Boss helper artwork remains unselected by terrain');
+assert.equal(markerIconDefinition('trade').asset, '5-Trader.png', 'terrain artwork never changes the canonical Marker definition');
+assert.equal(markerTextureUrl('vegvisir', true, 'ashlands'), '/markers/28-Vergvisir-2.png', 'Vegvisir directional artwork remains independent of terrain variants');
 assert.equal(isVegvisirMarker('vegvisir'), true);
 assert.equal(isVegvisirMarker('home'), false);
 assert.equal(markerIconDefinition('death_skull').type, 'death', 'legacy saved type compatibility remains local');
@@ -139,6 +172,8 @@ const gallerySource = source('../client/src/components/MarkerGallery.tsx');
 const inspectorSource = source('../client/src/components/MarkerCaptionField.tsx');
 const fontSource = source('../client/src/lib/markerCaptionFont.ts');
 const stylesSource = source('../client/src/styles.css');
+const sessionSource = source('../client/src/state/useMapSession.ts');
+const textureSource = source('../client/src/lib/markerTextures.ts');
 
 assert.match(canvasSource, /setMarkerPlacementPreview/);
 assert.match(canvasSource, /setHoveredMarker/);
@@ -161,6 +196,9 @@ assert.match(gallerySource, /anchorRect.bottom \+ GALLERY_OFFSET/);
 assert.match(gallerySource, /anchorRect.right/);
 assert.match(gallerySource, /aria-label=\{icon\.label\}/);
 assert.match(gallerySource, /document\.addEventListener\('pointerdown'.*true\)/);
+assert.match(gallerySource, /const closeForEscape[\s\S]*event\.preventDefault\(\);[\s\S]*event\.stopPropagation\(\);[\s\S]*onEscape\(\)/, 'the Gallery owns one Escape and delegates the Marker workflow exit');
+assert.match(workspaceSource, /const cancelMarkerGalleryAndReturnToPan = useCallback\(\(\) => \{[\s\S]*enterNeutralPan\(\);[\s\S]*canvasRef\.current\?\.focus\(\)/, 'Gallery Escape clears armed Marker state through the standard Pan transition');
+assert.match(workspaceSource, /<MarkerGallery[\s\S]*onEscape=\{cancelMarkerGalleryAndReturnToPan\}/, 'only Marker Gallery Escape uses the combined close-and-Pan action');
 assert.doesNotMatch(gallerySource, /category|Categories/i);
 assert.match(rendererSource, /markerTexture\(/);
 assert.match(rendererSource, /setHoveredMarker/);
@@ -168,6 +206,11 @@ assert.match(rendererSource, /directionalVariant/);
 assert.match(rendererSource, /icon\.anchor\.set\(0\.5\)/);
 assert.match(rendererSource, /icon\.rotation/);
 assert.match(rendererSource, /normaliseDirectionDegrees/);
+assert.match(rendererSource, /const visibleBiome = resolveVisibleBiomeAtPointInOrder\(orderedTerrainStrokes, \[marker\.x, marker\.y\]\)/);
+assert.match(rendererSource, /markerTexture\(marker\.markerType, directionalVariant, visibleBiome\)/);
+assert.match(rendererSource, /loadMarkerTexture\(marker\.markerType, directionalVariant, visibleBiome\)/);
+assert.match(textureSource, /textureCache\.get\(url\)/);
+assert.match(textureSource, /textureLoads\.get\(url\)/);
 assert.match(rendererSource, /this\.updateMarkerVisualScales\(\);/);
 assert.match(rendererSource, /scaleMarkerSpriteToZoomScale/);
 assert.match(rendererSource, /markerVisualDiameterCss\(zoom\) \/ longestNativeEdge/);
@@ -225,6 +268,47 @@ assert.match(inspectorSource, /marker-caption-field__input/);
 assert.match(inspectorSource, /captionCommitInFlightRef/);
 assert.match(inspectorSource, /event\.key === 'Enter'/);
 assert.match(inspectorSource, /event\.key === 'Escape'/);
+assert.match(inspectorSource, /hasCaptionDraftRef/);
+assert.match(inspectorSource, /if \(!hasCaptionDraftRef\.current\) return;/, 'only a real Marker caption draft consumes Escape');
+// Placement creates a one-shot caption focus request, but the field consumes
+// it only after the optimistic Marker becomes editable.
+assert.match(canvasSource, /onMarkerPlacementSelected\(id\)/);
+assert.match(workspaceSource, /markerCaptionAutoFocusId/);
+assert.match(workspaceSource, /requestMarkerCaptionAutoFocus/);
+assert.match(inspectorSource, /if \(!autoFocusRequested \|\| !editable\) return;/);
+assert.match(inspectorSource, /focus\(\{ preventScroll: true \}\)/);
+assert.match(inspectorSource, /onAutoFocusConsumed/);
+// Direction previews carry their Marker identity through successful
+// confirmation. The saved marker payload, rather than a stale selected
+// object, remains the source of truth until normal selection cleanup.
+assert.match(workspaceSource, /vegvisirDirectionPreviewRef = useRef<\{ markerId: string; direction: number; saved: boolean \} \| null>/);
+assert.match(workspaceSource, /persistPendingVegvisirDirection/);
+assert.match(workspaceSource, /const draft = markerWithDirection\(marker, pendingDirection\.direction\)/);
+assert.match(workspaceSource, /pendingDirection\.saved = true/);
+assert.match(workspaceSource, /const updateMarkerWithLatestVegvisirDirection/);
+assert.match(workspaceSource, /markerWithDirection\(marker, pendingDirection\.direction\)/);
+const markerUpdateSource = workspaceSource.slice(
+  workspaceSource.indexOf('const updateMarker = useCallback'),
+  workspaceSource.indexOf('const updatePath = useCallback'),
+);
+assert.doesNotMatch(markerUpdateSource, /setMarkerPreview\(null\)/, 'a normal Marker save must not erase the visible Vegvisir preview first');
+const markerArrayEffectSource = canvasSource.slice(
+  canvasSource.indexOf('useEffect(() => {\n    markersRef.current = markers;'),
+  canvasSource.indexOf('useEffect(() => {\n    labelsRef.current = labels;'),
+);
+assert.match(markerArrayEffectSource, /setMarkerEditPreview\(markerPreviewRef\.current\)/, 'authoritative marker refreshes retain an active direction preview');
+assert.match(canvasSource, /onSelectedMarkerBeforeSelectionChange/);
+assert.match(sessionSource, /const removeMarker = useCallback\(async \(markerId: Id\): Promise<boolean>/);
+assert.match(sessionSource, /Marker deletion failed\.[\s\S]*return false/);
+assert.match(workspaceSource, /const finishDeletedObjectInteraction = useCallback\([\s\S]*enterNeutralPan\(\)/);
+assert.match(workspaceSource, /const deleteMarker = useCallback\(async[\s\S]*await mapSession\.removeMarker\(markerId\)[\s\S]*if \(!deleted\) return false;[\s\S]*finishDeletedObjectInteraction\(\)/);
+const deleteKeySource = canvasSource.slice(canvasSource.indexOf("event.key === 'Delete'"), canvasSource.indexOf('const onKeyUp'));
+assert.doesNotMatch(deleteKeySource, /onMarkerSelectionChange\(null\);\s*void onMarkerDelete/, 'keyboard deletion must not clear selection before the request succeeds');
+assert.match(deleteKeySource, /void onMarkerDelete\(marker\.id\)/);
+const pointerRoutingSource = canvasSource.slice(canvasSource.indexOf('const handlePointerDown'));
+assert.ok(pointerRoutingSource.indexOf("if (initialGesture === 'marker-place')") < pointerRoutingSource.indexOf('const hitMarker ='), 'armed Marker placement must precede Marker hit routing');
+assert.ok(pointerRoutingSource.indexOf("if (initialGesture === 'marker-place')") < pointerRoutingSource.indexOf('const hitLabel ='), 'armed Marker placement must precede Label hit routing');
+assert.ok(pointerRoutingSource.indexOf("if (initialGesture === 'marker-place')") < pointerRoutingSource.indexOf('const hit = (currentSelected'), 'armed Marker placement must precede Path hit routing');
 
 console.log('PNG marker catalogue, geometry, gallery, and Vegvisir contract verification passed');
 

@@ -21,6 +21,7 @@ import { loadMarkerTexture, markerTexture } from '../../lib/markerTextures';
 import {
   dottedPathVisualStyle,
   pathColorForVisibleBiome,
+  textColorForVisibleBiome,
   PATH_DARK_COLOR,
 } from '../../lib/pathVisualStyle';
 import { orderTerrainStrokes, resolveVisibleBiomeAtPointInOrder } from '../../lib/terrainVisibility';
@@ -44,6 +45,9 @@ const CLASSIFICATION_OCEAN_COLOR = 0x0000ff;
 const PATH_SELECTION_COLOR = 0x918066;
 const HANDLE_RADIUS_CSS = 6.5;
 const MAX_DOTS_PER_PATH = 6_000;
+const BRUSH_CURSOR_BACKING_COLOR = 0x151310;
+const BRUSH_CURSOR_BACKING_WIDTH_CSS = 2.5;
+const BRUSH_CURSOR_FOREGROUND_WIDTH_CSS = 1;
 // Set locally while diagnosing Pixi render-target output. This is deliberately
 // not exposed as an application control and remains disabled in normal builds.
 const SHOW_CLASSIFICATION_DEBUG = false;
@@ -289,6 +293,11 @@ export class PixiMapRenderer {
       // Path dot contrast is derived from the final semantic terrain result.
       // Rebuild only the retained Paths layer; terrain replay remains unchanged.
       this.rebuildPaths();
+      // Captions and Labels use the same chronological terrain resolution at
+      // their world anchor. Rebuild their retained presentation when terrain
+      // is painted or erased so derived colours never become stale.
+      this.rebuildMarkers();
+      this.rebuildLabels();
       this.scheduleTerrainRender();
       this.requestStageRender();
     }
@@ -879,8 +888,9 @@ export class PixiMapRenderer {
     const ordered = [...this.markerObjects]
       .filter((marker) => marker.deletedAt === null)
       .sort((left, right) => left.layer - right.layer || left.orderKey - right.orderKey);
+    const orderedTerrainStrokes = orderTerrainStrokes(this.strokes);
     for (const marker of ordered) {
-      const renderable = this.createMarkerRenderable(marker, this.camera?.zoom ?? 1);
+      const renderable = this.createMarkerRenderable(marker, this.camera?.zoom ?? 1, orderedTerrainStrokes);
       this.markerShapes.addChild(renderable.root);
       if (renderable.caption !== null) {
         this.labels.addChild(renderable.caption);
@@ -915,7 +925,11 @@ export class PixiMapRenderer {
     if (originalCaption !== undefined) {
       originalCaption.visible = false;
     }
-    const renderable = this.createMarkerRenderable(this.markerEditPreview, this.camera?.zoom ?? 1);
+    const renderable = this.createMarkerRenderable(
+      this.markerEditPreview,
+      this.camera?.zoom ?? 1,
+      orderTerrainStrokes(this.strokes),
+    );
     this.markerEdit.addChild(renderable.root);
     if (renderable.caption !== null) {
       this.markerEditCaption.addChild(renderable.caption);
@@ -944,20 +958,25 @@ export class PixiMapRenderer {
     this.markerPlacementVisual = renderable.visual;
   }
 
-  private createMarkerRenderable(marker: MarkerVisual, zoom: number): MarkerRenderable {
+  private createMarkerRenderable(
+    marker: MarkerVisual,
+    zoom: number,
+    orderedTerrainStrokes: readonly BiomeStroke[] = [],
+  ): MarkerRenderable {
     const root = new Container();
     root.position.set(marker.x, marker.y);
     const visual = new Container();
     const directionalVariant = isVegvisirMarker(marker.markerType) &&
       ('id' in marker && (marker.id === this.selectedMarkerId || marker.id === this.hoveredMarkerId));
-    const icon = new Sprite(markerTexture(marker.markerType, directionalVariant));
+    const visibleBiome = resolveVisibleBiomeAtPointInOrder(orderedTerrainStrokes, [marker.x, marker.y]);
+    const icon = new Sprite(markerTexture(marker.markerType, directionalVariant, visibleBiome));
     icon.anchor.set(0.5);
     if (isVegvisirMarker(marker.markerType)) {
       icon.rotation = (normaliseDirectionDegrees(marker.directionDegrees ?? 0) * Math.PI) / 180;
     }
     // Texture loading remains lazy and cached. Until it resolves the icon is
     // transparent; the existing retained stage is repainted once on arrival.
-    void loadMarkerTexture(marker.markerType, directionalVariant)
+    void loadMarkerTexture(marker.markerType, directionalVariant, visibleBiome)
       .then((texture) => {
         if (icon.destroyed) {
           return;
@@ -975,7 +994,11 @@ export class PixiMapRenderer {
     visual.addChild(icon);
     applyMarkerVisualTransform(visual, zoom);
     root.addChild(visual);
-    return { root, visual, caption: createMarkerCaptionRenderable(marker, zoom) };
+    return {
+      root,
+      visual,
+      caption: createMarkerCaptionRenderable(marker, zoom, orderedTerrainStrokes),
+    };
   }
 
   private rebuildMarkerSelection(): void {
@@ -1011,16 +1034,17 @@ export class PixiMapRenderer {
     const ordered = [...this.labelObjects]
       .filter((label) => label.deletedAt === null)
       .sort((left, right) => left.layer - right.layer || left.orderKey - right.orderKey);
+    const orderedTerrainStrokes = orderTerrainStrokes(this.strokes);
     for (const label of ordered) {
       if (label.id === this.labelEditPreview?.id) {
         continue;
       }
-      const root = createLabelRenderable(label, this.camera?.zoom ?? 1);
+      const root = createLabelRenderable(label, this.camera?.zoom ?? 1, orderedTerrainStrokes);
       this.textLabels.addChild(root);
       this.labelNodes.set(label.id, root);
     }
     if (this.labelEditPreview !== null) {
-      this.labelEdit.addChild(createLabelRenderable(this.labelEditPreview, this.camera?.zoom ?? 1));
+      this.labelEdit.addChild(createLabelRenderable(this.labelEditPreview, this.camera?.zoom ?? 1, orderedTerrainStrokes));
     }
     this.updateObjectOpacities();
     this.rebuildLabelSelection();
@@ -1107,13 +1131,20 @@ export class PixiMapRenderer {
 
     this.brushCursor.visible = true;
     const zoom = this.camera?.zoom ?? 1;
+    const radius = this.cursor.brushWidth / 2;
     this.brushCursor
-      .circle(this.cursor.point[0], this.cursor.point[1], this.cursor.brushWidth / 2)
+      .circle(this.cursor.point[0], this.cursor.point[1], radius)
+      .stroke({
+        color: BRUSH_CURSOR_BACKING_COLOR,
+        alpha: 0.92,
+        width: BRUSH_CURSOR_BACKING_WIDTH_CSS / zoom,
+      })
+      .circle(this.cursor.point[0], this.cursor.point[1], radius)
       .stroke({
         color: this.cursor.color,
-        alpha: 0.72,
-        width: Math.max(0.75 / zoom, 0.2),
-    });
+        alpha: 0.96,
+        width: BRUSH_CURSOR_FOREGROUND_WIDTH_CSS / zoom,
+      });
   }
 
   /** Coalesces visible-stage presentation without keeping a permanent RAF loop. */
@@ -1245,7 +1276,11 @@ interface MarkerRenderable {
   caption: Container | null;
 }
 
-function createLabelRenderable(label: Label, zoom: number): Container {
+function createLabelRenderable(
+  label: Label,
+  zoom: number,
+  orderedTerrainStrokes: readonly BiomeStroke[] = [],
+): Container {
   const root = new Container();
   root.position.set(label.x, label.y);
   root.scale.set(labelWorldScale(label.referenceZoom));
@@ -1254,7 +1289,7 @@ function createLabelRenderable(label: Label, zoom: number): Container {
   const text = new Text({
     text: label.text,
     style: {
-      fill: 0x3f3a33,
+      fill: textColorAtPoint(orderedTerrainStrokes, [label.x, label.y]),
       fontFamily: `${MARKER_CAPTION_FONT_FAMILY}, ${MARKER_CAPTION_FONT_FALLBACK}`,
       fontSize: label.fontSize,
       fontWeight: 'normal',
@@ -1268,7 +1303,11 @@ function createLabelRenderable(label: Label, zoom: number): Container {
   return root;
 }
 
-function createMarkerCaptionRenderable(marker: MarkerVisual, zoom: number): Container | null {
+function createMarkerCaptionRenderable(
+  marker: MarkerVisual,
+  zoom: number,
+  orderedTerrainStrokes: readonly BiomeStroke[] = [],
+): Container | null {
   if (marker.name === null || marker.name.length === 0) {
     return null;
   }
@@ -1277,7 +1316,7 @@ function createMarkerCaptionRenderable(marker: MarkerVisual, zoom: number): Cont
   const caption = new Text({
     text: marker.name,
     style: {
-      fill: 0x3f3a33,
+      fill: textColorAtPoint(orderedTerrainStrokes, [marker.x, marker.y]),
       fontFamily: `${MARKER_CAPTION_FONT_FAMILY}, ${MARKER_CAPTION_FONT_FALLBACK}`,
       fontSize: markerCaptionFontSizeCss(zoom),
       fontWeight: 'normal',
@@ -1292,6 +1331,13 @@ function createMarkerCaptionRenderable(marker: MarkerVisual, zoom: number): Cont
   root.addChild(caption);
   applyMarkerCaptionTransform(root, marker, zoom);
   return root;
+}
+
+function textColorAtPoint(
+  orderedTerrainStrokes: readonly BiomeStroke[],
+  point: WorldPoint,
+): number {
+  return textColorForVisibleBiome(resolveVisibleBiomeAtPointInOrder(orderedTerrainStrokes, point));
 }
 
 /** Assigns the retained marker visual's screen-space camera transform. */

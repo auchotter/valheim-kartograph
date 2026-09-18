@@ -181,6 +181,7 @@ export function useMapSession() {
       resetCamera: boolean,
       cameraOverride?: Camera,
     ) => {
+      if (currentMapRef.current?.id !== state.map.id) setSaveError(null);
       currentMapRef.current = state.map;
       localRevisionRef.current = state.map.revision;
       objectsRef.current = state.objects;
@@ -437,7 +438,12 @@ export function useMapSession() {
           return;
         }
         const parsed = parseRealtimeMessage(message.data);
-        if (parsed === null || parsed.mapId !== mapId) {
+        if (parsed === null) {
+          // Discard malformed payloads before they can reach geometry/rendering.
+          void recoverAndReconnect();
+          return;
+        }
+        if (parsed.mapId !== mapId) {
           return;
         }
         if (parsed.type === 'map.ready') {

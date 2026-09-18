@@ -32,6 +32,11 @@ export async function createApp({ database, staticRoot }: CreateAppOptions): Pro
     if (isUniqueConstraintError(error)) {
       return reply.code(409).send({ error: 'Conflicting active map name or object ID.' });
     }
+    if (error instanceof Error && 'statusCode' in error && typeof error.statusCode === 'number'
+      && error.statusCode >= 400 && error.statusCode < 500) {
+      app.log.info({ err: error }, 'Request rejected');
+      return reply.code(error.statusCode).send({ error: error.statusCode === 400 ? 'Invalid request' : 'Request rejected' });
+    }
     app.log.error(error);
     return reply.code(500).send({ error: 'Internal Server Error' });
   });
@@ -64,7 +69,10 @@ export async function createApp({ database, staticRoot }: CreateAppOptions): Pro
     });
 
     app.setNotFoundHandler((request, reply) => {
-      if (request.url.startsWith('/api/')) {
+      const pathname = new URL(request.url, 'http://localhost').pathname;
+      if (pathname === '/api' || pathname.startsWith('/api/') || /\/[^/]*\.[^/]+$/.test(pathname)
+        || /^\/(?:assets|markers|fonts)(?:\/|$)/.test(pathname)
+        || !['GET', 'HEAD'].includes(request.method)) {
         return reply.code(404).send({ error: 'Not Found' });
       }
 

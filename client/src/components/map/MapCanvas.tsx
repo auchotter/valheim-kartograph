@@ -92,7 +92,7 @@ interface MapCanvasProps {
   onMarkerDelete: (markerId: string) => Promise<boolean>;
   onMarkerSelectionChange: (markerId: string | null) => void;
   onMarkerPlacementSelected: (markerId: string) => void;
-  onSelectedMarkerBeforeSelectionChange: () => void;
+  onSelectedMarkerBeforeSelectionChange: () => boolean | Promise<boolean>;
   onLabelUpdate: (label: Label) => Promise<boolean>;
   onLabelDelete: (labelId: string) => Promise<boolean>;
   onLabelSelectionChange: (labelId: string | null) => void;
@@ -195,6 +195,12 @@ interface PositionedEvent {
   currentTarget: HTMLDivElement;
   clientX: number;
   clientY: number;
+}
+
+type CanvasPointerInput = Pick<PointerEvent<HTMLDivElement>, 'pointerId' | 'clientX' | 'clientY' | 'button' | 'currentTarget' | 'preventDefault'>;
+function retainPointer(event: CanvasPointerInput): CanvasPointerInput {
+  return { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY,
+    button: event.button, currentTarget: event.currentTarget, preventDefault: () => {} };
 }
 
 function interactiveLabels(labels: readonly Label[], preview: Label | null): readonly Label[] {
@@ -349,6 +355,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     [],
   );
 
+  const deferredMarkerTransferRef = useRef<{ pointer: CanvasPointerInput; ended: boolean; moved: boolean; cancelled: boolean } | null>(null);
+
   const clearMarkerPlacement = useCallback(() => {
     armedMarkerTypeRef.current = null;
     markerPlacementStateRef.current = null;
@@ -357,6 +365,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   }, [onMarkerPlacementDisarm]);
 
   const cancelActivePointerGesture = useCallback(() => {
+    deferredMarkerTransferRef.current = null;
     activePointerGestureRef.current = null;
     panStateRef.current = null;
     drawingStateRef.current = null;
@@ -543,6 +552,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   useEffect(() => {
     // Map switches replace the authoritative object set; no transient gesture
     // or edit preview is allowed to carry into the next map.
+    deferredMarkerTransferRef.current = null;
     drawingStateRef.current = null;
     pathDrawingStateRef.current = null;
     pathEditStateRef.current = null;
@@ -838,11 +848,6 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
   };
 
   const selectMarker = (markerId: string | null): void => {
-    if (markerId !== null && selectedMarkerIdRef.current !== null && selectedMarkerIdRef.current !== markerId) {
-      // A direct transfer must snapshot/persist a pending Vegvisir preview
-      // before the parent selection callback clears its edit state.
-      onSelectedMarkerBeforeSelectionChange();
-    }
     selectedMarkerIdRef.current = markerId;
     rendererRef.current?.setSelectedMarker(markerId);
     if (markerId !== null && selectedPathIdRef.current !== null) {
@@ -862,7 +867,6 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     selectedLabelIdRef.current = labelId;
     rendererRef.current?.setSelectedLabel(labelId);
     if (labelId !== null && selectedMarkerIdRef.current !== null) {
-      onSelectedMarkerBeforeSelectionChange();
       selectedMarkerIdRef.current = null;
       rendererRef.current?.setSelectedMarker(null);
       onMarkerSelectionChange(null);
@@ -926,7 +930,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     return closestIndex;
   };
 
-  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+  const handlePointerDown = (event: CanvasPointerInput, confirmedTransfer = false, pointerEnded = false) => {
+    if (deferredMarkerTransferRef.current !== null) return;
     if (!interactionEnabled) {
       return;
     }
@@ -967,7 +972,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       event.preventDefault();
       panStateRef.current = { pointerId: event.pointerId, screenPoint };
       activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'pan' };
-      event.currentTarget.setPointerCapture(event.pointerId);
+      if (!pointerEnded) event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
 
@@ -989,7 +994,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         moved: false,
       };
       activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'marker-place' };
-      event.currentTarget.setPointerCapture(event.pointerId);
+      if (!pointerEnded) event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
 
@@ -1005,7 +1010,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       };
       pathDrawingStateRef.current = drawing;
       activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'path-draw' };
-      event.currentTarget.setPointerCapture(event.pointerId);
+      if (!pointerEnded) event.currentTarget.setPointerCapture(event.pointerId);
       previewPathDrawing(drawing);
       return;
     }
@@ -1027,7 +1032,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         };
         textCreationDragStateRef.current = dragState;
         activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'text-create-drag' };
-        event.currentTarget.setPointerCapture(event.pointerId);
+        if (!pointerEnded) event.currentTarget.setPointerCapture(event.pointerId);
         void onTextCreationPointerDown().then((persisted) => {
           const current = textCreationDragStateRef.current;
           if (current?.pointerId !== event.pointerId) {
@@ -1057,6 +1062,36 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     }
 
     const postPlacementSelect = currentTool === 'select' && postPlacementMarkerSelectRef.current;
+    if (!confirmedTransfer && selectedMarkerIdRef.current !== null) {
+      const markerHit = hitTestMarker(visibleOrSelected(markersRef.current, markerOpacityRef.current, selectedMarkerIdRef.current), worldPoint, cameraRef.current.zoom);
+      const otherHit = markerHit !== null ? markerHit.id !== selectedMarkerIdRef.current
+        : hitTestLabel(visibleOrSelected(labelsRef.current, textOpacityRef.current, null), worldPoint, cameraRef.current.zoom) !== null
+          || hitTestPath(visibleOrSelected(pathsRef.current, pathOpacityRef.current, null), worldPoint, 12 / cameraRef.current.zoom) !== null;
+      if (otherHit) {
+        const confirmed = onSelectedMarkerBeforeSelectionChange();
+        if (confirmed !== true) {
+          event.preventDefault();
+          if (confirmed === false) return;
+          const original = retainPointer(event);
+          const deferred = { pointer: original, ended: false, moved: false, cancelled: false };
+          deferredMarkerTransferRef.current = deferred;
+          if (!pointerEnded) event.currentTarget.setPointerCapture(event.pointerId);
+          void confirmed.then(saved => {
+            if (deferredMarkerTransferRef.current !== deferred) return;
+            deferredMarkerTransferRef.current = null;
+            if (saved && !deferred.cancelled) {
+              // Continue the original gesture, including movement/release while saving.
+              handlePointerDown(original, true, deferred.ended);
+              if (deferred.moved) handlePointerMove(deferred.pointer);
+              if (deferred.ended) endPointerInteraction(deferred.pointer, false);
+            } else if (original.currentTarget.hasPointerCapture(original.pointerId)) {
+              original.currentTarget.releasePointerCapture(original.pointerId);
+            }
+          });
+          return;
+        }
+      }
+    }
     const interactivePan = currentTool === 'pan' && !protectEnabledRef.current && initialGesture === 'select';
     const selectedAtPointerDown = {
       markerId: selectedMarkerIdRef.current,
@@ -1086,7 +1121,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
           startScreenPoint: screenPoint, dragStarted: false,
         };
         activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'path-edit' };
-        event.currentTarget.setPointerCapture(event.pointerId);
+        if (!pointerEnded) event.currentTarget.setPointerCapture(event.pointerId);
         return;
       }
     }
@@ -1109,7 +1144,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
             moved: false,
           };
           activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'marker-drag' };
-          event.currentTarget.setPointerCapture(event.pointerId);
+          if (!pointerEnded) event.currentTarget.setPointerCapture(event.pointerId);
         }
         return;
       }
@@ -1134,7 +1169,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
             moved: false,
           };
           activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'label-drag' };
-          event.currentTarget.setPointerCapture(event.pointerId);
+          if (!pointerEnded) event.currentTarget.setPointerCapture(event.pointerId);
         }
         return;
       }
@@ -1150,9 +1185,6 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       if (hit !== null) {
         event.preventDefault();
         const wasSelected = selectedPathIdRef.current === hit.id;
-        if (selectedMarkerIdRef.current !== null && selectedMarkerIdRef.current !== hit.id) {
-          onSelectedMarkerBeforeSelectionChange();
-        }
         selectPath(hit.id);
         if (currentTool !== 'path') {
           activateObjectTool('path');
@@ -1167,7 +1199,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
             startScreenPoint: screenPoint, dragStarted: false,
           };
           activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'path-edit' };
-          event.currentTarget.setPointerCapture(event.pointerId);
+          if (!pointerEnded) event.currentTarget.setPointerCapture(event.pointerId);
         }
         return;
       }
@@ -1201,7 +1233,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       };
       pathDrawingStateRef.current = drawing;
       activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'path-draw' };
-      event.currentTarget.setPointerCapture(event.pointerId);
+      if (!pointerEnded) event.currentTarget.setPointerCapture(event.pointerId);
       previewPathDrawing(drawing);
       return;
     }
@@ -1228,7 +1260,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
         moved: false,
       };
       activePointerGestureRef.current = { pointerId: event.pointerId, kind: 'marker-place' };
-      event.currentTarget.setPointerCapture(event.pointerId);
+      if (!pointerEnded) event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
 
@@ -1250,11 +1282,19 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
       pointerId: event.pointerId,
       kind: drawing.mode === 'erase' ? 'erase' : 'biome-draw',
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    if (!pointerEnded) event.currentTarget.setPointerCapture(event.pointerId);
     previewDrawing(drawing);
   };
 
-  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+  const handlePointerMove = (event: CanvasPointerInput) => {
+    const deferred = deferredMarkerTransferRef.current;
+    if (deferred !== null) {
+      if (deferred.pointer.pointerId === event.pointerId && !deferred.ended) {
+        deferred.pointer = retainPointer(event);
+        deferred.moved = true;
+      }
+      return;
+    }
     if (!interactionEnabled) {
       return;
     }
@@ -1397,7 +1437,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     }
   };
 
-  const finishDrawing = (event: PointerEvent<HTMLDivElement>) => {
+  const finishDrawing = (event: CanvasPointerInput) => {
     const drawing = drawingStateRef.current;
     if (drawing?.pointerId !== event.pointerId) {
       return;
@@ -1419,7 +1459,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     });
   };
 
-  const finishPathDrawing = (event: PointerEvent<HTMLDivElement>) => {
+  const finishPathDrawing = (event: CanvasPointerInput) => {
     const drawing = pathDrawingStateRef.current;
     if (drawing?.pointerId !== event.pointerId) {
       return;
@@ -1460,7 +1500,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     });
   };
 
-  const finishPathEdit = (event: PointerEvent<HTMLDivElement>) => {
+  const finishPathEdit = (event: CanvasPointerInput) => {
     const editing = pathEditStateRef.current;
     if (editing?.pointerId !== event.pointerId) {
       return;
@@ -1475,7 +1515,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     onPathUpdate(editing.path);
   };
 
-  const finishMarkerDrag = (event: PointerEvent<HTMLDivElement>) => {
+  const finishMarkerDrag = (event: CanvasPointerInput) => {
     const dragging = markerDragStateRef.current;
     if (dragging?.pointerId !== event.pointerId) {
       return;
@@ -1490,7 +1530,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     onMarkerUpdate(dragging.marker);
   };
 
-  const finishLabelDrag = (event: PointerEvent<HTMLDivElement>) => {
+  const finishLabelDrag = (event: CanvasPointerInput) => {
     const dragging = labelDragStateRef.current;
     if (dragging?.pointerId !== event.pointerId) {
       return;
@@ -1504,7 +1544,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     onLabelUpdate(dragging.label);
   };
 
-  const finishTextCreationDrag = (event: PointerEvent<HTMLDivElement>, cancelled: boolean) => {
+  const finishTextCreationDrag = (event: CanvasPointerInput, cancelled: boolean) => {
     const dragging = textCreationDragStateRef.current;
     if (dragging?.pointerId !== event.pointerId) return;
     if (cancelled) {
@@ -1521,7 +1561,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     }
   };
 
-  const finishMarkerPlacement = (event: PointerEvent<HTMLDivElement>) => {
+  const finishMarkerPlacement = (event: CanvasPointerInput) => {
     const placement = markerPlacementStateRef.current;
     if (placement?.pointerId !== event.pointerId) {
       return;
@@ -1552,7 +1592,16 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(function Ma
     });
   };
 
-  const endPointerInteraction = (event: PointerEvent<HTMLDivElement>, cancelled: boolean) => {
+  const endPointerInteraction = (event: CanvasPointerInput, cancelled: boolean) => {
+    const deferred = deferredMarkerTransferRef.current;
+    if (deferred !== null && deferred.pointer.pointerId === event.pointerId) {
+      if (!deferred.ended) {
+        deferred.pointer = retainPointer(event);
+        deferred.ended = true;
+        deferred.cancelled = cancelled;
+      }
+      return;
+    }
     const activeGesture = activePointerGestureRef.current;
     if (activeGesture?.pointerId !== event.pointerId) {
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { supportedMarkerTypeSchema } from './markerTypes.js';
 import type { MapObject } from './domain.js';
 
 export const VALHEIM_KARTOGRAPH_FORMAT = 'valheim-kartograph';
@@ -18,8 +19,7 @@ const points = z.array(z.tuple([coordinate, coordinate])).max(20_000);
 const orderKey = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER - 1);
 const nonBlank = (max: number) => z.string().min(1).max(max).refine(value => value.trim().length > 0, 'Must not be blank.');
 const biome = z.enum(['meadows', 'black_forest', 'swamp', 'mountains', 'plains', 'mistlands', 'ashlands', 'lava', 'deep_north', 'ocean']);
-// v1 accepts the installed catalogue and its historical render-compatible IDs.
-const markerType = z.enum(['home', 'chest', 'campfire', 'mining', 'trade', 'signpost', 'ship', 'portal', 'cave-1', 'cave-2', 'fortress', 'tower', 'crypt', 'castle', 'potion', 'egg', 'farm', 'berry', 'tree-1', 'tree-2', 'boar', 'chicken', 'wolf', 'sap', 'tar', 'vegvisir', 'death', 'boss-1', 'boss-2', 'helmet', 'spawn', 'target', 'pin', 'positive', 'negative', 'lox', 'askvin', 'moose', 'death_skull', 'boss', 'trader', 'pet', 'circle', 'red_cross', 'green_tick', 'tent', 'dragon_egg', 'cave', 'village', 'tree', 'structure', 'farming_garden', 'tar_pool', 'maypole']);
+const markerType = supportedMarkerTypeSchema;
 
 export const portableObjectSchema = z.discriminatedUnion('objectType', [
   z.object({ objectType: z.literal('biome_stroke'), orderKey, mode: z.enum(['paint', 'erase']), biome: biome.nullable(), brushWidth: finite.positive().max(100_000), points: points.min(1) }).strict().refine(v => v.mode === 'erase' ? v.biome === null : v.biome !== null, 'Invalid terrain mode/biome combination.'),

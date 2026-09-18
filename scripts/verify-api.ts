@@ -13,6 +13,8 @@ applyMigrations(database, migrations);
 const app = await createApp({ database });
 
 try {
+  const malformed = await app.inject({ method: 'POST', url: '/api/maps', headers: { 'content-type': 'application/json' }, payload: '{' });
+  assert.equal(malformed.statusCode, 400, 'malformed JSON is a client error, not 500');
   const map = await createMap('Our World');
   const initialState = await request('GET', `/api/maps/${map.id}`);
   const initialSpawns = initialState.json.objects.filter(
@@ -134,6 +136,10 @@ try {
   };
   const createdMarker = await request('POST', `/api/maps/${map.id}/objects`, mutation(marker));
   assert.equal(createdMarker.statusCode, 201);
+  for (const markerType of ['custom_unrecognised', 'lox', 'askvin', 'moose', '5-Trader-Ashlands.png', 'death_skull']) {
+    assert.equal((await request('POST', `/api/maps/${map.id}/objects`, mutation({ ...marker, id: crypto.randomUUID(), markerType }))).statusCode, 400);
+    assert.equal((await request('PUT', `/api/maps/${map.id}/objects/${marker.id}`, mutation({ ...marker, markerType }, { baseObjectVersion: 1 }))).statusCode, 400);
+  }
   assert.equal(createdMarker.json.object.sizeScale, 1.5);
   assert.equal(createdMarker.json.object.directionDegrees, 135);
   const updatedMarker = await request(

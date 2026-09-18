@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { visibleSegmentRange } from '../client/src/lib/pathViewport.ts';
+import { forEachVisiblePathDot, visibleSegmentRange } from '../client/src/lib/pathViewport.ts';
 import { MapLayer, type BiomeStroke, type Path } from '../shared/domain.ts';
 import {
   distanceToPath,
@@ -27,6 +27,19 @@ import { initialPointerGesture, shouldClearPanSelection } from '../client/src/li
 import { markerTextureUrl } from '../client/src/lib/markerIcons.ts';
 
 const viewport = { minX: -10, minY: -10, maxX: 10, maxY: 10 };
+for (const zoom of [1, 8]) {
+  for (const minX of [0, 8000]) {
+    const spacing = PATH_DOT_SPACING_CSS / zoom;
+    const bounds = { minX, maxX: minX + 100, minY: -10, maxY: 10 };
+    const dots: number[] = [];
+    forEachVisiblePathDot([[0, 0], [4003, 0], [10000, 0]], spacing, bounds, 6000, x => dots.push(x));
+    assert.ok(dots.length > 0, `long path visible at ${minX}, zoom ${zoom}`);
+    const expected = Array.from({ length: Math.floor(10000 / spacing) + 1 }, (_, i) => i * spacing)
+      .filter(x => x >= bounds.minX && x <= bounds.maxX);
+    assert.deepEqual(dots, expected, 'clipped segments retain the global phase without discontinuities');
+  }
+}
+assert.equal(forEachVisiblePathDot([[0, 0], [10000, 0]], 1, undefined, 6000, () => {}), 6000);
 assert.deepEqual(visibleSegmentRange([-100, 0], [100, 0], viewport), [0.45, 0.55]);
 assert.deepEqual(visibleSegmentRange([100, 0], [-100, 0], viewport), [0.45, 0.55]);
 assert.deepEqual(visibleSegmentRange([0, -100], [0, 100], viewport), [0.45, 0.55]);

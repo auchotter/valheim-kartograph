@@ -30,6 +30,8 @@ assert.equal(isLabelVisibleAtZoom(0.2), true);
 assert.ok(Math.abs(labelWorldScale(0.79) - (1 / 0.79)) < 1e-12);
 
 const workspaceSource = readFileSync(new URL('../client/src/components/MapWorkspace.tsx', import.meta.url), 'utf8');
+assert.match(workspaceSource, /mapSession\.saveError !== null[\s\S]*className="map-save-error" role="alert"/);
+assert.match(workspaceSource, /vegvisirDirection=\{\(markerPreview\?\.id === selectedMarker\?\.id \? markerPreview\?\.directionDegrees/);
 const mapMenuSource = readFileSync(new URL('../client/src/components/MapMenu.tsx', import.meta.url), 'utf8');
 const mapToolbarSource = readFileSync(new URL('../client/src/components/MapToolbar.tsx', import.meta.url), 'utf8');
 const coordinateSource = readFileSync(new URL('../client/src/components/CoordinateNavigator.tsx', import.meta.url), 'utf8');
@@ -370,7 +372,7 @@ assert.doesNotMatch(workspaceSource, /className="map-debug/);
 assert.match(workspaceSource, /const \[debugInfoOpen, setDebugInfoOpen\] = useState\(initialUiPreferences\.debugOpen\)/);
 assert.match(workspaceSource, /const \[debugInfoView, setDebugInfoView\] = useState<DebugInfoView>\('readout'\)/);
 assert.match(workspaceSource, /type DebugInfoView = 'readout' \| 'settings' \| 'bug-report'/);
-assert.match(workspaceSource, /mailto:valheim-map@adg\.one\?subject=\$\{encodeURIComponent\('Valheim Map - Bug report'\)\}/);
+assert.match(workspaceSource, /mailto:valheim-map@adg\.one\?subject=\$\{encodeURIComponent\('Valheim Kartograph - Bug report'\)\}/);
 assert.match(workspaceSource, /const \[debugCoordinateMode, setDebugCoordinateMode\] = useState<DebugCoordinateMode>\(initialUiPreferences\.debugCoordinateMode\)/);
 assert.match(workspaceSource, /debugOpen: debugInfoOpen,[\s\S]*debugCoordinateMode,/);
 assert.match(workspaceSource, /className="debug-info__button immersive-wood-button"/);

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { SUPPORTED_MARKER_TYPES, supportedMarkerTypeSchema } from '../shared/markerTypes.ts';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { Container, Graphics } from 'pixi.js';
 import { MapLayer, type Marker } from '../shared/domain.ts';
@@ -55,12 +56,16 @@ const expectedTerrainVariantAssets = [
   '11-Fortress-Forest.png',
   '16-Farm-Plains.png',
   '21-Chicken-Snow.png',
-  '31_Boss-Dark.png',
 ] as const;
 
 assert.ok(suppliedPngs.length >= expectedCatalogue.length, 'the supplied marker directory must retain the canonical Marker artwork');
-assert.equal(MARKER_ICONS.length, 35, 'Lox, Askvin, and Moose are legacy-only; Vergvisir-2 is helper artwork');
+assert.equal(MARKER_ICONS.length, 35, 'retired development types are unsupported; Vergvisir-2 is helper artwork');
 assert.deepEqual(MARKER_ICONS.map(({ type, asset }) => [type, asset]), expectedCatalogue);
+assert.deepEqual(MARKER_ICONS.map(({ type }) => type), [...SUPPORTED_MARKER_TYPES]);
+for (const type of SUPPORTED_MARKER_TYPES) assert.ok(supportedMarkerTypeSchema.safeParse(type).success);
+for (const type of ['lox', 'askvin', 'moose', 'custom_unrecognised', '5-Trader-Ashlands.png', 'vegvisir-2']) {
+  assert.equal(supportedMarkerTypeSchema.safeParse(type).success, false);
+}
 assert.equal(new Set(MARKER_ICONS.map(({ type }) => type)).size, 35);
 for (const asset of expectedTerrainVariantAssets) {
   assert.ok(suppliedPngs.includes(asset), `user-supplied terrain helper ${asset} must remain available`);
@@ -100,12 +105,6 @@ assert.equal(markerTextureUrl('vegvisir', true, 'ashlands'), '/markers/28-Vergvi
 assert.equal(isVegvisirMarker('vegvisir'), true);
 assert.equal(isVegvisirMarker('home'), false);
 assert.equal(markerIconDefinition('death_skull').type, 'death', 'legacy saved type compatibility remains local');
-assert.equal(markerIconDefinition('lox').asset, '23-Lox.png');
-assert.equal(markerIconDefinition('askvin').asset, '24-Askvin.png');
-assert.equal(markerIconDefinition('moose').asset, '25-Moose.png');
-assert.equal(markerTextureUrl('lox'), '/markers/23-Lox.png');
-assert.equal(markerTextureUrl('askvin'), '/markers/24-Askvin.png');
-assert.equal(markerTextureUrl('moose'), '/markers/25-Moose.png');
 assert.equal(markerIconDefinition('unknown-legacy-marker').type, 'pin', 'unknown legacy markers have a safe visible fallback');
 
 assert.equal(markerVisualDiameterCss(0.1), MARKER_BASE_SIZE_CSS);

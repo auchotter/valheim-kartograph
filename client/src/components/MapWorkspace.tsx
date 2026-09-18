@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { persistMarkerDraftBeforeTransfer } from '../lib/markerConfirmation';
 import { type Biome, type Label, type Marker, type Path, type PathGeometryType, type WorldPoint } from '../../../shared/domain';
 import { MapMenu } from './MapMenu';
 import { MarkerGallery } from './MarkerGallery';
@@ -23,7 +24,7 @@ const DEFAULT_BIOME: Biome = 'meadows';
 const DEFAULT_BRUSH_WIDTH = 120;
 type DebugInfoView = 'readout' | 'settings' | 'bug-report';
 const APP_VERSION = 'v1.0';
-const BUG_REPORT_MAILTO = `mailto:valheim-map@adg.one?subject=${encodeURIComponent('Valheim Map - Bug report')}`;
+const BUG_REPORT_MAILTO = `mailto:valheim-map@adg.one?subject=${encodeURIComponent('Valheim Kartograph - Bug report')}`;
 
 export function MapWorkspace() {
   const layoutMode = useHudLayout();
@@ -49,6 +50,7 @@ export function MapWorkspace() {
   const [markerPreview, setMarkerPreview] = useState<Marker | null>(null);
   const [labelPreview, setLabelPreview] = useState<Label | null>(null);
   const [markerCaptionDrafts, setMarkerCaptionDrafts] = useState<Record<string, string>>({});
+  const markerCaptionDraftsRef = useRef(markerCaptionDrafts);
   const [markerCaptionAutoFocusId, setMarkerCaptionAutoFocusId] = useState<string | null>(null);
   const [labelDrafts, setLabelDrafts] = useState<Record<string, string>>({});
   const [textCreationDraft, setTextCreationDraft] = useState('');
@@ -136,6 +138,7 @@ export function MapWorkspace() {
     setLabelPreviewState(null);
     setArmedMarkerType(cleared.armedMarkerType);
     setMarkerCaptionDrafts({});
+    markerCaptionDraftsRef.current = {};
     setLabelDrafts({});
     setTextCreationDraft('');
     setTextCreationPosition(null);
@@ -272,7 +275,10 @@ export function MapWorkspace() {
       markerCommitDraftsRef.current.set(marker.id, marker);
       try {
         const saved = await promise;
-        if (!saved && selectedMarkerIdRef.current === marker.id) setMarkerPreview(marker);
+        if (!saved && selectedMarkerIdRef.current === marker.id) {
+          const latest = vegvisirDirectionPreviewRef.current;
+          setMarkerPreview(latest?.markerId === marker.id ? markerWithDirection(marker, latest.direction) : marker);
+        }
         return saved;
       } finally {
         markerCommitPromisesRef.current.delete(marker.id);
@@ -292,6 +298,10 @@ export function MapWorkspace() {
   }, [mapSession.savePathUpdate]);
 
   const updateMarkerCaptionDraft = useCallback((markerId: string, draft: string | null) => {
+    const next = { ...markerCaptionDraftsRef.current };
+    if (draft === null) delete next[markerId];
+    else next[markerId] = draft;
+    markerCaptionDraftsRef.current = next;
     setMarkerCaptionDrafts((current) => {
       if (draft === null) {
         if (!(markerId in current)) {
@@ -657,7 +667,7 @@ export function MapWorkspace() {
         const pending = markerCommitPromisesRef.current.get(selectedMarker.id);
         const pendingDraft = markerCommitDraftsRef.current.get(selectedMarker.id);
         if (pending === undefined && mapSession.pendingMarkerIds.has(selectedMarker.id)) return false;
-        const captionDraft = markerCaptionDrafts[selectedMarker.id];
+        const captionDraft = markerCaptionDraftsRef.current[selectedMarker.id];
         const pendingDirection = vegvisirDirectionPreviewRef.current?.markerId === selectedMarker.id
           ? vegvisirDirectionPreviewRef.current
           : null;
@@ -673,8 +683,7 @@ export function MapWorkspace() {
           // still needs this one aggregated marker mutation after the prior
           // caption operation settles.
           if (
-            captionDraft !== undefined &&
-            (pendingDraft === undefined || pendingDraft.name !== draft.name || pendingDraft.directionDegrees !== draft.directionDegrees)
+            pendingDraft === undefined || pendingDraft.name !== draft.name || pendingDraft.directionDegrees !== draft.directionDegrees
           ) {
             if (!(await updateMarker(draft))) return false;
             if (pendingDirection !== null && vegvisirDirectionPreviewRef.current === pendingDirection) pendingDirection.saved = true;
@@ -701,9 +710,26 @@ export function MapWorkspace() {
     }
   }, [commitSelectedLabelAndExit, enterNeutralPan, markerCaptionDrafts, markerPreview, selectedLabel, selectedMarker, selectedPathId, updateMarker, updateMarkerCaptionDraft, mapSession.pendingMarkerIds, mapSession.pendingPathIds]);
 
-  const persistSelectedMarkerBeforeSelectionChange = useCallback(() => {
-    void persistPendingVegvisirDirection(selectedMarker);
-  }, [persistPendingVegvisirDirection, selectedMarker]);
+  const persistSelectedMarkerBeforeSelectionChange = useCallback((): boolean | Promise<boolean> => {
+    if (selectedMarker === null) return true;
+    const marker = selectedMarker;
+    const direction = vegvisirDirectionPreviewRef.current?.markerId === marker.id
+      ? vegvisirDirectionPreviewRef.current : null;
+    const caption = markerCaptionDraftsRef.current[marker.id];
+    const draft = { ...marker, name: normaliseMarkerCaption(caption ?? marker.name ?? ''),
+      directionDegrees: direction?.direction ?? marker.directionDegrees };
+    const pending = markerCommitPromisesRef.current.get(marker.id);
+    const pendingDraft = markerCommitDraftsRef.current.get(marker.id);
+    // Clean transfers stay synchronous, preserving same-gesture selection/drag.
+    return persistMarkerDraftBeforeTransfer({ marker, draft, pending, pendingDraft,
+      isCurrent: () => selectedMarkerIdRef.current === marker.id,
+      save: updateMarker,
+      accepted: () => {
+        if (direction !== null && vegvisirDirectionPreviewRef.current === direction) direction.saved = true;
+        updateMarkerCaptionDraft(marker.id, null);
+      },
+    });
+  }, [selectedMarker, updateMarker, updateMarkerCaptionDraft]);
   const cursorValheim = cursorWorld === null ? null : mapToValheimCoordinates(cursorWorld[0], cursorWorld[1]);
   const centreValheim = mapToValheimCoordinates(mapSession.camera.cameraX, mapSession.camera.cameraY);
   const debugValheim = debugCoordinateMode === 'cursor' ? cursorValheim : centreValheim;
@@ -1064,7 +1090,7 @@ export function MapWorkspace() {
             markerCaptionAutoFocusRequested={selectedMarkerId !== null && selectedMarkerId === markerCaptionAutoFocusId}
             markerCaptionDraft={selectedMarker === null ? undefined : markerCaptionDrafts[selectedMarker.id]}
             selectedVegvisir={selectedMarker !== null && isVegvisirMarker(selectedMarker.markerType)}
-            vegvisirDirection={selectedMarker?.directionDegrees ?? 0}
+            vegvisirDirection={(markerPreview?.id === selectedMarker?.id ? markerPreview?.directionDegrees : selectedMarker?.directionDegrees) ?? 0}
             hasSelectedLabel={selectedLabelId !== null}
             selectedLabelPending={selectedLabelId !== null && mapSession.pendingLabelIds.has(selectedLabelId)}
             selectedLabel={selectedLabel}
@@ -1119,6 +1145,13 @@ export function MapWorkspace() {
         onClose={closeMarkerGallery}
         onEscape={cancelMarkerGalleryAndReturnToPan}
       />
+
+      {mapSession.saveError !== null && (
+        <section className="map-save-error" role="alert" aria-atomic="true">
+          <strong>Map change could not be saved.</strong>
+          <span>{mapSession.saveError} Please try again.</span>
+        </section>
+      )}
 
       <div className="debug-info" ref={debugInfoRef}>
         {!debugInfoOpen ? (

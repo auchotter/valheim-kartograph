@@ -15,7 +15,7 @@ import { mapVisualTheme } from '../../lib/mapVisualTheme';
 import { destroyParchmentTextures, parchmentTextures } from '../../lib/parchmentTextures';
 import { chooseGridSpacing } from '../../lib/grid';
 import { pathPolyline } from '../../lib/pathGeometry';
-import { visibleSegmentRange, type PathViewport } from '../../lib/pathViewport';
+import { forEachVisiblePathDot, type PathViewport } from '../../lib/pathViewport';
 import { isVegvisirMarker, normaliseDirectionDegrees } from '../../lib/markerIcons';
 import { loadMarkerTexture, markerTexture } from '../../lib/markerTextures';
 import {
@@ -1392,52 +1392,10 @@ function drawDottedPath(
 
   const { radiusWorld, spacingWorld } = dottedPathVisualStyle(zoom, highlighted);
   const orderedTerrainStrokes = overrideColor === undefined ? orderTerrainStrokes(terrainStrokes) : [];
-  let nextDotIndex = 0;
-  let distanceBeforeSegment = 0;
-  let dots = 0;
-
-  const drawDot = (x: number, y: number) => {
-    if (dots >= MAX_DOTS_PER_PATH) {
-      return;
-    }
-    if (viewport && (x < viewport.minX || x > viewport.maxX || y < viewport.minY || y > viewport.maxY)) return;
+  forEachVisiblePathDot(points, spacingWorld, viewport, MAX_DOTS_PER_PATH, (x, y) => {
     const color = overrideColor ?? pathColorForVisibleBiome(resolveVisibleBiomeAtPointInOrder(orderedTerrainStrokes, [x, y]));
     graphic.circle(x, y, radiusWorld).fill({ color, alpha });
-    dots += 1;
-  };
-
-  if (points.length === 1) {
-    drawDot(points[0][0], points[0][1]);
-    return;
-  }
-
-  for (let index = 1; index < points.length && nextDotIndex < MAX_DOTS_PER_PATH; index += 1) {
-    const start = points[index - 1];
-    const end = points[index];
-    const deltaX = end[0] - start[0];
-    const deltaY = end[1] - start[1];
-    const segmentLength = Math.hypot(deltaX, deltaY);
-    if (segmentLength === 0) {
-      continue;
-    }
-    const segmentEnd = distanceBeforeSegment + segmentLength;
-    const range = viewport ? visibleSegmentRange(start, end, viewport) : [0, 1];
-    const lastDotIndex = Math.min(MAX_DOTS_PER_PATH - 1, Math.floor(segmentEnd / spacingWorld));
-    const firstVisible = range === null ? lastDotIndex + 1 : Math.max(nextDotIndex, Math.ceil((distanceBeforeSegment + range[0] * segmentLength) / spacingWorld));
-    const lastVisible = range === null ? -1 : Math.min(lastDotIndex, Math.floor((distanceBeforeSegment + range[1] * segmentLength) / spacingWorld));
-    for (let dotIndex = firstVisible; dotIndex <= lastVisible; dotIndex += 1) {
-      const along = Math.max(0, dotIndex * spacingWorld - distanceBeforeSegment) / segmentLength;
-      drawDot(start[0] + deltaX * along, start[1] + deltaY * along);
-    }
-    nextDotIndex = lastDotIndex + 1;
-    distanceBeforeSegment = segmentEnd;
-  }
-
-  // Very short paths still need a visible endpoint rather than one isolated dot.
-  if (distanceBeforeSegment < spacingWorld) {
-    const end = points.at(-1)!;
-    drawDot(end[0], end[1]);
-  }
+  });
 }
 
 function createStrokeRenderable(stroke: TerrainStroke): Graphics {

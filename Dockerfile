@@ -10,6 +10,7 @@ RUN npm ci
 
 COPY client ./client
 COPY server ./server
+COPY shared ./shared
 COPY tsconfig.server.json vite.config.ts ./
 RUN npm run build && npm prune --omit=dev
 

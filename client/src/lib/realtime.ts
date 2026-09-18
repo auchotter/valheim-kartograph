@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mapObjectSchema } from '../../../shared/mapObjectValidation';
 import type { MapObject } from '../../../shared/domain';
 import type { MapObjectAcceptedMessage, RealtimeServerMessage } from '../../../shared/realtime';
 
@@ -60,6 +61,9 @@ export function parseRealtimeMessage(value: unknown): RealtimeServerMessage | nu
   if ((parsed.data.payload.before !== null && before === null) || (parsed.data.payload.after !== null && after === null)) {
     return null;
   }
+  const event = parsed.data;
+  if ([before, after].some(object => object !== null && (object.id !== event.objectId
+    || object.mapId !== event.mapId || object.objectType !== event.objectType))) return null;
 
   return {
     ...parsed.data,
@@ -107,16 +111,7 @@ export function classifyRealtimeRevision(localRevision: number, receivedRevision
 }
 
 function asMapObject(value: unknown): MapObject | null {
-  if (typeof value !== 'object' || value === null) {
-    return null;
-  }
-  const object = value as Partial<MapObject>;
-  if (
-    typeof object.id !== 'string' ||
-    typeof object.mapId !== 'string' ||
-    !objectTypeSchema.safeParse(object.objectType).success
-  ) {
-    return null;
-  }
-  return value as MapObject;
+  const parsed = mapObjectSchema.safeParse(value);
+  // Terrain mode/biome correlation is enforced by the shared schema refinement.
+  return parsed.success ? parsed.data as MapObject : null;
 }

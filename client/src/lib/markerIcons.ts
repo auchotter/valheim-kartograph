@@ -1,16 +1,18 @@
+import type { SupportedMarkerType } from '../../../shared/markerTypes';
+
 export const MARKER_ICON_VIEWBOX = 64;
 export const MARKER_BASE_SIZE_CSS = 32;
 export const MARKER_MIN_SIZE_SCALE = 0.5;
 export const MARKER_MAX_SIZE_SCALE = 3;
 
 export interface MarkerIconDefinition {
-  type: string;
+  type: SupportedMarkerType;
   label: string;
   asset: string;
   directionalAsset?: string;
 }
 
-const icon = (type: string, label: string, asset: string, directionalAsset?: string): MarkerIconDefinition => ({
+const icon = (type: SupportedMarkerType, label: string, asset: string, directionalAsset?: string): MarkerIconDefinition => ({
   type,
   label,
   asset,
@@ -59,16 +61,7 @@ export const MARKER_ICONS: readonly MarkerIconDefinition[] = [
   icon('negative', 'Negative', '37-Negative.png'),
 ] as const;
 
-const iconsByType = new Map(MARKER_ICONS.map((definition) => [definition.type, definition]));
-
-// These definitions remain render-only compatibility entries for markers
-// already stored on maps. They are intentionally excluded from MARKER_ICONS,
-// so they cannot appear in the gallery or be newly placed.
-const legacyIconsByType = new Map([
-  ['lox', icon('lox', 'Lox', '23-Lox.png')],
-  ['askvin', icon('askvin', 'Askvin', '24-Askvin.png')],
-  ['moose', icon('moose', 'Moose', '25-Moose.png')],
-]);
+const iconsByType = new Map<string, MarkerIconDefinition>(MARKER_ICONS.map((definition) => [definition.type, definition]));
 
 // Old saved map objects retain their historical type strings. They are never
 // presented as new-gallery choices, but map to the closest supplied artwork.
@@ -110,7 +103,7 @@ function canonicalMarkerType(markerType: string): string {
 
 export function markerIconDefinition(markerType: string): MarkerIconDefinition {
   const resolvedType = canonicalMarkerType(markerType);
-  return iconsByType.get(resolvedType) ?? legacyIconsByType.get(resolvedType) ?? FALLBACK_MARKER_ICON;
+  return iconsByType.get(resolvedType) ?? FALLBACK_MARKER_ICON;
 }
 
 /** Returns helper artwork only; Marker data always retains its canonical type. */

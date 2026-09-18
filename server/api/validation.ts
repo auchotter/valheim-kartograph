@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { supportedMarkerTypeSchema } from '../../shared/markerTypes.js';
 
 const uuid = z.uuid();
 const finiteNumber = z.number().finite();
@@ -74,7 +75,7 @@ const pathSchema = z
 const markerSchema = z.object({
   id: uuid,
   objectType: z.literal('marker'),
-  markerType: nonEmptyString.max(100),
+  markerType: supportedMarkerTypeSchema,
   x: finiteNumber,
   y: finiteNumber,
   name: z.string().trim().max(500).nullable().optional().default(null),
